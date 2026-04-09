@@ -13,14 +13,25 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     image: session.user.image ?? null,
     role: session.user.role as UserRole,
     status: session.user.status as import("@/types").UserStatus,
+    is_approved: session.user.is_approved !== false,
   };
 }
 
+// Only blocks banned users. Suspended users CAN access pages.
 export async function requireAuth(): Promise<SessionUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.status === "suspended" || user.status === "banned") {
+  if (user.status === "banned") {
     redirect("/login?error=AccountBlocked");
+  }
+  return user;
+}
+
+// Blocks suspended users from performing actions (create task, submit proof, etc.)
+export async function requireActiveUser(): Promise<SessionUser> {
+  const user = await requireAuth();
+  if (user.status === "suspended") {
+    throw new Error("Your account is suspended. You cannot perform this action.");
   }
   return user;
 }

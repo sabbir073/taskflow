@@ -50,16 +50,16 @@ export function ReviewQueue() {
               </div>
 
               <div className="flex gap-4 flex-wrap">
-                {!!item.proof_url && (
-                  <a href={item.proof_url as string} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
-                    <ExternalLink className="w-3.5 h-3.5" /> View URL
+                {((item.proof_urls as string[]) || []).map((url, i) => (
+                  <a key={`u${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                    <ExternalLink className="w-3.5 h-3.5" /> URL {i + 1}
                   </a>
-                )}
-                {!!item.proof_screenshot_url && (
-                  <a href={item.proof_screenshot_url as string} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
-                    <ImageIcon className="w-3.5 h-3.5" /> View Screenshot
+                ))}
+                {((item.proof_screenshots as string[]) || []).map((url, i) => (
+                  <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                    <ImageIcon className="w-3.5 h-3.5" /> Screenshot {i + 1}
                   </a>
-                )}
+                ))}
               </div>
 
               {!!item.proof_notes && <p className="text-sm text-muted-foreground bg-muted/40 px-4 py-2.5 rounded-xl">{String(item.proof_notes)}</p>}

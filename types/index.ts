@@ -34,6 +34,7 @@ export interface SessionUser {
   image: string | null;
   role: import("./database").UserRole;
   status: import("./database").UserStatus;
+  is_approved: boolean;
 }
 
 // ===== Form Data Types =====
@@ -58,6 +59,8 @@ export interface TaskFormData {
   platform_id: number;
   task_type_id: number;
   task_data: Record<string, string>;
+  images: string[];
+  urls: string[];
   point_budget: number;
   points_per_completion: number;
   priority: import("./database").TaskPriority;
@@ -73,8 +76,8 @@ export interface TaskFormData {
 }
 
 export interface ProofSubmissionData {
-  proof_url?: string;
-  proof_screenshot_url?: string;
+  proof_urls: string[];
+  proof_screenshots: string[];
   proof_notes?: string;
 }
 

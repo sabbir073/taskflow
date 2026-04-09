@@ -7,21 +7,42 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label
 import { usePlatforms, useTaskTypes, useCreateTask } from "@/hooks/use-tasks";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { getMyBalance } from "@/lib/actions/users";
-import { useGroups } from "@/hooks/use-groups";
+import { useMyGroups } from "@/hooks/use-groups";
 import type { TaskFormData } from "@/types";
-import { Coins, AlertCircle } from "lucide-react";
+import { Coins, AlertCircle, Upload, X, Link2, Plus } from "lucide-react";
 
 export function TaskForm() {
   const router = useRouter();
   const { data: platforms } = usePlatforms();
-  const { data: groupsData } = useGroups({ page: 1, pageSize: 100 });
+  const { data: groupsData } = useMyGroups({ page: 1, pageSize: 100 });
   const createTask = useCreateTask();
 
   const [selectedPlatformId, setSelectedPlatformId] = useState<number | null>(null);
   const { data: taskTypes } = useTaskTypes(selectedPlatformId);
   const [balance, setBalance] = useState<number>(0);
+  const [taskImages, setTaskImages] = useState<string[]>([]);
+  const [taskUrls, setTaskUrls] = useState<string[]>([]);
+  const [newUrl, setNewUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => { getMyBalance().then(setBalance); }, []);
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files) return;
+    setUploading(true);
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.url) setTaskImages((prev) => [...prev, data.url]);
+      } catch { /* ignore */ }
+    }
+    setUploading(false);
+    e.target.value = "";
+  }
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: { point_budget: 100, points_per_completion: 10, priority: "medium", status: "draft", target_type: "all_users", is_recurring: false, task_data: {} },
@@ -48,7 +69,7 @@ export function TaskForm() {
   const insufficientBalance = watchBudget > balance;
 
   async function onSubmit(data: TaskFormData) {
-    const result = await createTask.mutateAsync(data);
+    const result = await createTask.mutateAsync({ ...data, images: taskImages, urls: taskUrls });
     if (result.success) { getMyBalance().then(setBalance); router.push("/tasks"); }
   }
 
@@ -108,6 +129,61 @@ export function TaskForm() {
         </CardContent>
       </Card>
 
+      {/* Images & URLs (optional) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Attachments</CardTitle>
+          <CardDescription>Add reference images and URLs (optional)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Images */}
+          <div className="space-y-2">
+            <Label>Images</Label>
+            {taskImages.length > 0 && (
+              <div className="grid grid-cols-4 gap-2">
+                {taskImages.map((url, i) => (
+                  <div key={i} className="relative group rounded-xl overflow-hidden border border-border">
+                    <img src={url} alt="" className="w-full h-20 object-cover" />
+                    <button type="button" onClick={() => setTaskImages(taskImages.filter((_, j) => j !== i))}
+                      className="absolute top-1 right-1 w-5 h-5 bg-error text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/40 transition-colors">
+              <Upload className="w-5 h-5 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">{uploading ? "Uploading..." : "Click to upload images"}</span>
+              <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
+            </label>
+          </div>
+
+          {/* URLs */}
+          <div className="space-y-2">
+            <Label>Reference URLs</Label>
+            {taskUrls.map((url, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-muted/40 rounded-lg text-sm truncate">
+                  <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{url}</a>
+                </div>
+                <button type="button" onClick={() => setTaskUrls(taskUrls.filter((_, j) => j !== i))}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-error transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://example.com" type="url" />
+              <Btn type="button" variant="outline" size="sm" onClick={() => { if (newUrl.trim()) { setTaskUrls([...taskUrls, newUrl.trim()]); setNewUrl(""); } }}>
+                <Plus className="w-4 h-4 mr-1" /> Add
+              </Btn>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Points Budget */}
       <Card>
         <CardHeader><CardTitle>Points Budget</CardTitle><CardDescription>Set total budget and reward per completion</CardDescription></CardHeader>
@@ -155,7 +231,7 @@ export function TaskForm() {
             <Select {...register("target_type")}><option value="all_users">All Users</option><option value="group">Specific Group</option><option value="individual">Individual User</option></Select>
           </div>
           {watchTargetType === "group" && (
-            <div className="space-y-1.5"><Label>Select Group</Label><Select {...register("target_group_id", { valueAsNumber: true })}><option value="">Select a group</option>{groupsData?.data?.map((g) => <option key={g.id as number} value={g.id as number}>{String(g.name)}</option>)}</Select></div>
+            <div className="space-y-1.5"><Label>Select Group</Label><Select {...register("target_group_id", { valueAsNumber: true })}><option value="">Select a group</option>{groupsData?.data?.map((g: Record<string, unknown>) => <option key={g.id as number} value={g.id as number}>{String(g.name)}</option>)}</Select></div>
           )}
           {watchTargetType === "individual" && (
             <div className="space-y-1.5"><Label>User ID</Label><Input {...register("target_user_id")} placeholder="Enter user ID" /></div>

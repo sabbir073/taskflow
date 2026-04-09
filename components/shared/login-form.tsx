@@ -27,8 +27,10 @@ export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(
     errorParam === "AccountBlocked"
-      ? "Your account has been suspended. Contact support."
-      : ""
+      ? "Your account has been banned. Contact support."
+      : errorParam === "PendingApproval"
+        ? "Your account is pending admin approval. Please wait for activation."
+        : ""
   );
 
   const {

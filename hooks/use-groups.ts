@@ -2,22 +2,19 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getGroups, getGroupById, createGroup, deleteGroup, joinGroup, leaveGroup,
-  addMember, addMemberByEmail, removeMember,
+  getMyGroups, getGroupById, createGroup, deleteGroup, leaveGroup,
+  addMember, addMemberByEmail, removeMember, searchUserByEmail,
+  getAllGroups, approveGroup, rejectGroup,
 } from "@/lib/actions/groups";
 import { toast } from "sonner";
 import type { PaginationParams } from "@/types";
 
-export function useGroups(params: PaginationParams & { privacy?: string }) {
-  return useQuery({ queryKey: ["groups", params], queryFn: () => getGroups(params) });
+export function useMyGroups(params?: PaginationParams) {
+  return useQuery({ queryKey: ["my-groups", params], queryFn: () => getMyGroups(params) });
 }
 
 export function useGroup(groupId: number) {
-  return useQuery({
-    queryKey: ["group", groupId],
-    queryFn: () => getGroupById(groupId),
-    enabled: !!groupId,
-  });
+  return useQuery({ queryKey: ["group", groupId], queryFn: () => getGroupById(groupId), enabled: !!groupId });
 }
 
 export function useCreateGroup() {
@@ -25,7 +22,7 @@ export function useCreateGroup() {
   return useMutation({
     mutationFn: createGroup,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["groups"] }); }
+      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["my-groups"] }); }
       else toast.error(r.error);
     },
   });
@@ -36,18 +33,7 @@ export function useDeleteGroup() {
   return useMutation({
     mutationFn: deleteGroup,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["groups"] }); }
-      else toast.error(r.error);
-    },
-  });
-}
-
-export function useJoinGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: joinGroup,
-    onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["groups"] }); }
+      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["my-groups"] }); }
       else toast.error(r.error);
     },
   });
@@ -58,7 +44,7 @@ export function useLeaveGroup() {
   return useMutation({
     mutationFn: leaveGroup,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["groups"] }); }
+      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["my-groups"] }); }
       else toast.error(r.error);
     },
   });
@@ -86,12 +72,47 @@ export function useAddMemberByEmail() {
   });
 }
 
+export function useSearchUserByEmail(email: string) {
+  return useQuery({
+    queryKey: ["search-user", email],
+    queryFn: () => searchUserByEmail(email),
+    enabled: email.length > 3 && email.includes("@"),
+  });
+}
+
 export function useRemoveMember() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ groupId, userId }: { groupId: number; userId: string }) => removeMember(groupId, userId),
     onSuccess: (r) => {
       if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["group"] }); }
+      else toast.error(r.error);
+    },
+  });
+}
+
+// Admin hooks
+export function useAllGroups(params: PaginationParams & { approval_status?: string }) {
+  return useQuery({ queryKey: ["admin-groups", params], queryFn: () => getAllGroups(params) });
+}
+
+export function useApproveGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: approveGroup,
+    onSuccess: (r) => {
+      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["admin-groups"] }); }
+      else toast.error(r.error);
+    },
+  });
+}
+
+export function useRejectGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: rejectGroup,
+    onSuccess: (r) => {
+      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["admin-groups"] }); }
       else toast.error(r.error);
     },
   });

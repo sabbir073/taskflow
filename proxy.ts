@@ -9,7 +9,6 @@ const adminRoles = ["super_admin", "admin"];
 const authProxy = auth((req) => {
   const { pathname } = req.nextUrl;
 
-  // Allow public routes and auth API
   if (
     publicPaths.includes(pathname) ||
     pathname.startsWith(authApiPath) ||
@@ -22,19 +21,25 @@ const authProxy = auth((req) => {
 
   const user = req.auth?.user;
 
-  // Redirect to login if not authenticated
   if (!user) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Block suspended/banned users
-  if (user.status === "suspended" || user.status === "banned") {
+  // Banned = fully blocked
+  if (user.status === "banned") {
     return NextResponse.redirect(new URL("/login?error=AccountBlocked", req.url));
   }
 
-  // RBAC for admin-only paths
+  // Unapproved = blocked until admin approves
+  if (user.is_approved === false) {
+    return NextResponse.redirect(new URL("/login?error=PendingApproval", req.url));
+  }
+
+  // Suspended = CAN login, restrictions at action level only
+
+  // RBAC for admin paths
   const isAdminPath = adminOnlyPaths.some((p) => pathname.startsWith(p));
   if (isAdminPath && !adminRoles.includes(user.role)) {
     return NextResponse.redirect(new URL("/dashboard", req.url));

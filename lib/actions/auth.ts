@@ -56,6 +56,25 @@ export async function registerUser(formData: {
     }
 
     // Profile is auto-created by the database trigger
+    const userId = ((user as Record<string, unknown>).id) as string;
+
+    // Check if user approval is required
+    const { data: approvalSetting } = await db
+      .from("settings")
+      .select("value")
+      .eq("key", "require_user_approval")
+      .single();
+
+    const requireApproval = approvalSetting && (
+      (approvalSetting as Record<string, unknown>).value === true ||
+      (approvalSetting as Record<string, unknown>).value === "true"
+    );
+
+    if (requireApproval) {
+      await db.from("profiles").update({ is_approved: false } as never).eq("user_id", userId);
+      return { success: true, message: "Account created! Your account is pending admin approval." };
+    }
+
     const token = crypto.randomUUID();
     const expires = new Date(Date.now() + 60 * 60 * 1000);
 

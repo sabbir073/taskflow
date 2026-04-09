@@ -14,7 +14,7 @@ const labelMap: Record<string, string> = {
   notifications: "Notifications",
   "landing-editor": "Landing Editor",
   leaderboard: "Leaderboard",
-  approvals: "Approvals",
+  plans: "Plans",
   create: "Create",
   review: "Review",
 };

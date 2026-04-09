@@ -345,3 +345,50 @@ export async function getMyBalance(): Promise<number> {
 
   return profile ? Number((profile as Record<string, unknown>).total_points) : 0;
 }
+
+// ===== Admin: Approve user signup =====
+export async function approveUser(userId: string): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+      return { success: false, error: "Unauthorized" };
+
+    const db = getServerClient();
+    await db.from("profiles").update({ is_approved: true } as never).eq("user_id", userId);
+    return { success: true, message: "User approved" };
+  } catch {
+    return { success: false, error: "Failed to approve user" };
+  }
+}
+
+// ===== Admin: Reject user signup =====
+export async function rejectUser(userId: string): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+      return { success: false, error: "Unauthorized" };
+
+    const db = getServerClient();
+    await db.from("profiles").update({ status: "banned", is_approved: false } as never).eq("user_id", userId);
+    return { success: true, message: "User rejected" };
+  } catch {
+    return { success: false, error: "Failed to reject user" };
+  }
+}
+
+// ===== Admin: Get pending approval users =====
+export async function getPendingApprovalUsers(params?: PaginationParams): Promise<PaginatedResponse<Record<string, unknown>>> {
+  const db = getServerClient();
+  const page = params?.page || 1;
+  const pageSize = params?.pageSize || 20;
+  const offset = (page - 1) * pageSize;
+
+  const { data, count } = await db
+    .from("profiles")
+    .select("*, users!inner(id, name, email, image, created_at)", { count: "exact" })
+    .eq("is_approved", false)
+    .order("created_at", { ascending: true })
+    .range(offset, offset + pageSize - 1);
+
+  return { data: (data || []) as Record<string, unknown>[], total: count || 0, page, pageSize, totalPages: Math.ceil((count || 0) / pageSize) };
+}

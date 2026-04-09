@@ -49,6 +49,7 @@ export interface Profile {
   user_id: string;
   role: UserRole;
   status: UserStatus;
+  is_approved: boolean;
   phone: string | null;
   total_points: number;
   tasks_completed: number;
@@ -121,6 +122,8 @@ export interface Task {
   platform_id: number;
   task_type_id: number;
   task_data: Record<string, string>;
+  images: string[];
+  urls: string[];
   points: number;
   point_budget: number;
   points_per_completion: number;
@@ -146,8 +149,8 @@ export interface TaskAssignment {
   task_id: number;
   user_id: string;
   status: AssignmentStatus;
-  proof_url: string | null;
-  proof_screenshot_url: string | null;
+  proof_urls: string[];
+  proof_screenshots: string[];
   proof_notes: string | null;
   rejection_reason: string | null;
   submitted_at: string | null;
@@ -275,4 +278,26 @@ export interface LeaderboardEntry {
   total_points: number;
   tasks_completed: number;
   current_streak: number;
+}
+
+export interface Plan {
+  id: number;
+  name: string;
+  price: number;
+  period: string;
+  description: string | null;
+  features: string[];
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+}
+
+export interface UserSubscription {
+  id: number;
+  user_id: string;
+  plan_id: number;
+  starts_at: string;
+  expires_at: string | null;
+  status: string;
+  created_at: string;
 }

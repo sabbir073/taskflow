@@ -17,7 +17,7 @@ export default async function TasksPage() {
     <div>
       <PageHeader title="Tasks" description={isAdmin ? "Manage all tasks and approve user-created tasks" : "Create tasks or complete assigned tasks"}
         actions={<Link href="/tasks/create"><Btn size="sm"><Plus className="w-4 h-4 mr-1" /> Create Task</Btn></Link>} />
-      <TasksView isAdmin={isAdmin} />
+      <TasksView isAdmin={isAdmin} userId={user.id} />
     </div>
   );
 }

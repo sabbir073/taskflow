@@ -51,13 +51,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const supabase = getServerClient();
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role, status")
+          .select("role, status, is_approved")
           .eq("user_id", user.id!)
           .single();
 
         const profileData = profile as Record<string, unknown> | null;
         token.role = (profileData?.role as string) || "user";
         token.status = (profileData?.status as string) || "active";
+        token.is_approved = profileData?.is_approved !== false; // default true if missing
       }
       return token;
     },
@@ -66,6 +67,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = token.id as string;
         session.user.role = token.role as string;
         session.user.status = token.status as string;
+        session.user.is_approved = token.is_approved as boolean;
       }
       return session;
     },

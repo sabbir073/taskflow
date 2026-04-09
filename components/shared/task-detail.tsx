@@ -99,10 +99,11 @@ function ProofSection({ assignment, proofType }: { assignment: Record<string, un
   const status = String(assignment.status);
   const acceptTask = useAcceptTask();
   const submitProof = useSubmitProof();
-  const [proofUrl, setProofUrl] = useState(String(assignment.proof_url || ""));
-  const [proofScreenshotUrl, setProofScreenshotUrl] = useState(String(assignment.proof_screenshot_url || ""));
+  const [proofUrls, setProofUrls] = useState<string[]>((assignment.proof_urls as string[]) || []);
+  const [proofScreenshots, setProofScreenshots] = useState<string[]>((assignment.proof_screenshots as string[]) || []);
   const [proofNotes, setProofNotes] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [newUrl, setNewUrl] = useState("");
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -110,8 +111,13 @@ function ProofSection({ assignment, proofType }: { assignment: Record<string, un
     setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
-    try { const res = await fetch("/api/upload", { method: "POST", body: formData }); const data = await res.json(); if (data.url) setProofScreenshotUrl(data.url); } catch { /* */ }
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.url) setProofScreenshots((prev) => [...prev, data.url]);
+    } catch { /* */ }
     setUploading(false);
+    e.target.value = "";
   }
 
   if (status === "approved") return (
@@ -146,24 +152,51 @@ function ProofSection({ assignment, proofType }: { assignment: Record<string, un
         {status === "rejected" && <CardDescription className="text-error">Rejected: {String(assignment.rejection_reason || "No reason")}. Please resubmit.</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Multiple URLs */}
         {(proofType === "url" || proofType === "both") && (
-          <div className="space-y-1.5"><Label>Proof URL</Label><Input type="url" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} placeholder="https://..." /></div>
+          <div className="space-y-2">
+            <Label>Proof URLs</Label>
+            {proofUrls.map((url, i) => (
+              <div key={i} className="flex gap-2">
+                <Input value={url} onChange={(e) => { const copy = [...proofUrls]; copy[i] = e.target.value; setProofUrls(copy); }} placeholder="https://..." />
+                <Btn variant="ghost" size="sm" onClick={() => setProofUrls(proofUrls.filter((_, j) => j !== i))}>x</Btn>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="Add URL..." type="url" />
+              <Btn variant="outline" size="sm" onClick={() => { if (newUrl) { setProofUrls([...proofUrls, newUrl]); setNewUrl(""); } }}>Add</Btn>
+            </div>
+          </div>
         )}
+
+        {/* Multiple Screenshots */}
         {(proofType === "screenshot" || proofType === "both") && (
-          <div className="space-y-1.5">
-            <Label>Screenshot</Label>
-            <label className="block border-2 border-dashed border-border rounded-xl p-6 text-center cursor-pointer hover:border-primary/40 transition-colors">
-              {proofScreenshotUrl ? (
-                <div className="space-y-2"><img src={proofScreenshotUrl} alt="Proof" className="max-h-48 mx-auto rounded-lg" /><p className="text-xs text-success">Uploaded</p></div>
-              ) : (
-                <><Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" /><p className="text-sm text-muted-foreground">{uploading ? "Uploading..." : "Click to upload"}</p></>
-              )}
+          <div className="space-y-2">
+            <Label>Screenshots</Label>
+            {proofScreenshots.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {proofScreenshots.map((url, i) => (
+                  <div key={i} className="relative group">
+                    <img src={url} alt="" className="w-full h-24 object-cover rounded-lg" />
+                    <button onClick={() => setProofScreenshots(proofScreenshots.filter((_, j) => j !== i))}
+                      className="absolute top-1 right-1 w-5 h-5 bg-error text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">x</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="block border-2 border-dashed border-border rounded-xl p-4 text-center cursor-pointer hover:border-primary/40 transition-colors">
+              <Upload className="w-6 h-6 text-muted-foreground mx-auto mb-1" />
+              <p className="text-xs text-muted-foreground">{uploading ? "Uploading..." : "Click to upload screenshot"}</p>
               <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
             </label>
           </div>
         )}
+
         <div className="space-y-1.5"><Label>Notes (optional)</Label><Textarea value={proofNotes} onChange={(e) => setProofNotes(e.target.value)} placeholder="Any additional context..." /></div>
-        <Btn className="w-full" isLoading={submitProof.isPending} onClick={() => submitProof.mutate({ assignmentId: assignment.id as number, data: { proof_url: proofUrl || undefined, proof_screenshot_url: proofScreenshotUrl || undefined, proof_notes: proofNotes || undefined } })}>Submit Proof</Btn>
+        <Btn className="w-full" isLoading={submitProof.isPending} onClick={() => submitProof.mutate({
+          assignmentId: assignment.id as number,
+          data: { proof_urls: proofUrls, proof_screenshots: proofScreenshots, proof_notes: proofNotes || undefined },
+        })}>Submit Proof</Btn>
       </CardContent>
     </Card>
   );
@@ -189,10 +222,14 @@ function AssignmentRow({ assignment }: { assignment: Record<string, unknown> }) 
         </Badge>
       </div>
 
-      {!!(assignment.proof_url || assignment.proof_screenshot_url) && (
+      {(((assignment.proof_urls as string[]) || []).length > 0 || ((assignment.proof_screenshots as string[]) || []).length > 0) && (
         <div className="flex gap-3 flex-wrap">
-          {!!assignment.proof_url && <a href={String(assignment.proof_url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ExternalLink className="w-3 h-3" /> URL</a>}
-          {!!assignment.proof_screenshot_url && <a href={String(assignment.proof_screenshot_url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ImageIcon className="w-3 h-3" /> Screenshot</a>}
+          {((assignment.proof_urls as string[]) || []).map((url, i) => (
+            <a key={`u${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ExternalLink className="w-3 h-3" /> URL {i + 1}</a>
+          ))}
+          {((assignment.proof_screenshots as string[]) || []).map((url, i) => (
+            <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ImageIcon className="w-3 h-3" /> Screenshot {i + 1}</a>
+          ))}
         </div>
       )}
 

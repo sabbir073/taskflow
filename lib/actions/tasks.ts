@@ -11,6 +11,8 @@ const taskSchema = z.object({
   platform_id: z.number().int().positive(),
   task_type_id: z.number().int().positive(),
   task_data: z.record(z.string(), z.string()).optional().default({}),
+  images: z.array(z.string()).optional().default([]),
+  urls: z.array(z.string()).optional().default([]),
   point_budget: z.number().min(0.01, "Budget must be greater than 0"),
   points_per_completion: z.number().min(0.01, "Points per completion must be greater than 0"),
   priority: z.enum(["low", "medium", "high"]),
@@ -35,6 +37,13 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
     const validated = taskSchema.parse(formData);
     const db = getServerClient();
     const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+
+    // Suspended users cannot create tasks
+    if (!isAdmin) {
+      const { data: profile } = await db.from("profiles").select("status").eq("user_id", session.user.id).single();
+      if (profile && (profile as Record<string, unknown>).status === "suspended")
+        return { success: false, error: "Your account is suspended" };
+    }
 
     // Validate budget: points_per_completion * possible completions <= point_budget
     if (validated.points_per_completion > validated.point_budget) {
@@ -63,10 +72,12 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
       .insert({
         ...validated,
         task_data: validated.task_data || {},
-        points: validated.points_per_completion, // backward compat
+        points: validated.points_per_completion,
         point_budget: validated.point_budget,
         points_per_completion: validated.points_per_completion,
         points_spent: 0,
+        images: validated.images || [],
+        urls: validated.urls || [],
         approval_status: approvalStatus,
         created_by: session.user.id,
       } as never)
@@ -349,6 +360,7 @@ export async function getTasks(params: PaginationParams & {
   status?: string;
   platform_id?: number;
   approval_status?: string;
+  created_by?: string;
 }): Promise<PaginatedResponse<Record<string, unknown>>> {
   const db = getServerClient();
   const page = params.page || 1;
@@ -357,11 +369,12 @@ export async function getTasks(params: PaginationParams & {
 
   let query = db
     .from("tasks")
-    .select("*, platforms!inner(name, slug, icon), task_types!inner(name, slug), users!tasks_created_by_fkey(name)", { count: "exact" });
+    .select("*, platforms!inner(name, slug, icon), task_types!inner(name, slug), users!tasks_created_by_fkey(name, email)", { count: "exact" });
 
   if (params.status) query = query.eq("status", params.status);
   if (params.platform_id) query = query.eq("platform_id", params.platform_id);
   if (params.approval_status) query = query.eq("approval_status", params.approval_status);
+  if (params.created_by) query = query.eq("created_by", params.created_by);
   if (params.search) query = query.ilike("title", `%${params.search}%`);
 
   query = query.order("created_at", { ascending: false });

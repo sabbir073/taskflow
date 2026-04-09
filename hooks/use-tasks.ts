@@ -19,7 +19,7 @@ export function useTaskTypes(platformId: number | null) {
   });
 }
 
-export function useTasks(params: PaginationParams & { status?: string; platform_id?: number }) {
+export function useTasks(params: PaginationParams & { status?: string; platform_id?: number; approval_status?: string; created_by?: string }) {
   return useQuery({ queryKey: ["tasks", params], queryFn: () => getTasks(params) });
 }
 
@@ -86,7 +86,7 @@ export function useAcceptTask() {
 export function useSubmitProof() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ assignmentId, data }: { assignmentId: number; data: { proof_url?: string; proof_screenshot_url?: string; proof_notes?: string } }) =>
+    mutationFn: ({ assignmentId, data }: { assignmentId: number; data: { proof_urls: string[]; proof_screenshots: string[]; proof_notes?: string } }) =>
       submitProof(assignmentId, data),
     onSuccess: (r) => {
       if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["my-tasks"] }); }
