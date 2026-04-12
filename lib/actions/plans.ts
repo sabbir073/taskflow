@@ -147,3 +147,50 @@ export async function deletePlan(planId: number): Promise<ApiResponse> {
     return { success: false, error: "Failed to delete plan" };
   }
 }
+
+// Admin: assign subscription to any user
+export async function adminAssignSubscription(userId: string, planId: number): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+      return { success: false, error: "Unauthorized" };
+
+    const db = getServerClient();
+
+    const { data: plan } = await db.from("plans").select("*").eq("id", planId).single();
+    if (!plan) return { success: false, error: "Plan not found" };
+    const p = plan as Record<string, unknown>;
+
+    let expiresAt: string | null = null;
+    if (p.period === "monthly") {
+      const d = new Date(); d.setMonth(d.getMonth() + 1); expiresAt = d.toISOString();
+    } else if (p.period === "yearly") {
+      const d = new Date(); d.setFullYear(d.getFullYear() + 1); expiresAt = d.toISOString();
+    }
+
+    // Cancel existing active subs
+    await db.from("user_subscriptions").update({ status: "cancelled" } as never)
+      .eq("user_id", userId).eq("status", "active");
+
+    await db.from("user_subscriptions").insert({
+      user_id: userId, plan_id: planId,
+      starts_at: new Date().toISOString(), expires_at: expiresAt, status: "active",
+    } as never);
+
+    return { success: true, message: `${p.name} plan assigned to user` };
+  } catch {
+    return { success: false, error: "Failed to assign subscription" };
+  }
+}
+
+// Admin: get user's current subscription
+export async function getUserSubscription(userId: string) {
+  const db = getServerClient();
+  const { data } = await db
+    .from("user_subscriptions")
+    .select("*, plans!inner(name, price, period)")
+    .eq("user_id", userId).eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1).single();
+  return data as Record<string, unknown> | null;
+}

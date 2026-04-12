@@ -66,8 +66,11 @@ function MyTasksTab({ userId }: { userId: string }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const { data, isLoading } = useTasks({ page, pageSize: 20, search, created_by: userId });
+  const removeTask = useDeleteTask();
   const items = data?.data || [];
   const totalPages = data?.totalPages || 1;
+
+  const approvalVariant: Record<string, "success" | "warning" | "error" | "default"> = { approved: "success", pending_approval: "warning", rejected_by_admin: "error" };
 
   return (
     <div className="space-y-4">
@@ -78,7 +81,56 @@ function MyTasksTab({ userId }: { userId: string }) {
       {isLoading ? <LoadingSkeleton /> : items.length === 0 ? (
         <EmptyState icon={Plus} title="No tasks created yet" description="Create your first task to get started" action={{ label: "Create Task", href: "/tasks/create" }} />
       ) : (
-        <TaskGrid items={items} isCreatorView />
+        <div className="space-y-3">
+          {items.map((item) => {
+            const taskId = item.id as number;
+            const title = String(item.title || "");
+            const platform = item.platforms as Record<string, unknown> | undefined;
+            const taskType = item.task_types as Record<string, unknown> | undefined;
+            const points = Number(item.points_per_completion || 0);
+            const budget = Number(item.point_budget || 0);
+            const spent = Number(item.points_spent || 0);
+            const status = String(item.status || "draft");
+            const approval = String(item.approval_status || "approved");
+            const slug = String(platform?.slug || "");
+            const config = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
+            const statusBadge = TASK_STATUS_BADGE[status] || { variant: "default" as const, label: status };
+
+            return (
+              <Card key={taskId}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: config?.color || "#666" }}>
+                        {String(platform?.name || "?").charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <Link href={`/tasks/${taskId}`} className="font-semibold text-sm hover:text-primary transition-colors">{title}</Link>
+                        <p className="text-xs text-muted-foreground">
+                          {String(platform?.name || "")} &middot; {String(taskType?.name || "")} &middot;
+                          <span className="text-primary font-medium"> {points.toFixed(2)} pts/task</span> &middot;
+                          Budget: {spent.toFixed(2)}/{budget.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {approval !== "approved" && <Badge variant={approvalVariant[approval] || "default"}>{approval.replace(/_/g, " ")}</Badge>}
+                      <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+
+                      <Link href={`/tasks/${taskId}/edit`}>
+                        <Btn variant="outline" size="sm">Edit</Btn>
+                      </Link>
+                      <Btn variant="ghost" size="sm" className="text-error" onClick={() => removeTask.mutate(taskId)} disabled={removeTask.isPending}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Btn>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
       <Pagination page={page} totalPages={totalPages} setPage={setPage} />
     </div>
@@ -125,19 +177,19 @@ function DoableTasksTab() {
             const badge = ASSIGNMENT_BADGE[status] || { variant: "default" as const, label: status };
 
             return (
-              <Card key={assignmentId}>
+              <Card key={assignmentId} className="hover:shadow-md transition-all">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-3">
-                    {/* Task info */}
-                    <div className="flex items-center gap-3 min-w-0">
+                    {/* Task info - clickable */}
+                    <Link href={`/tasks/${taskId}`} className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-80 transition-opacity">
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: config?.color || "#666" }}>
                         {String(platform?.name || "?").charAt(0)}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-semibold text-sm truncate">{title}</p>
+                        <p className="font-semibold text-sm truncate hover:text-primary transition-colors">{title}</p>
                         <p className="text-xs text-muted-foreground">{String(platform?.name || "")} &middot; {String(taskType?.name || "")} &middot; <span className="text-primary font-medium">{points.toFixed(2)} pts</span></p>
                       </div>
-                    </div>
+                    </Link>
 
                     {/* Status + Actions */}
                     <div className="flex items-center gap-2 shrink-0">
@@ -166,6 +218,11 @@ function DoableTasksTab() {
                           <CheckCircle className="w-3.5 h-3.5" /> +{Number(item.points_awarded || 0).toFixed(2)} pts
                         </span>
                       )}
+
+                      {/* Always show View button */}
+                      <Link href={`/tasks/${taskId}`}>
+                        <Btn variant="ghost" size="sm">View</Btn>
+                      </Link>
                     </div>
                   </div>
                 </CardContent>

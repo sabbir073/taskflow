@@ -26,6 +26,7 @@ export async function registerUser(formData: {
   email: string;
   password: string;
   confirmPassword: string;
+  planId?: number;
 }): Promise<ApiResponse> {
   try {
     const validated = registerSchema.parse(formData);
@@ -69,6 +70,21 @@ export async function registerUser(formData: {
       (approvalSetting as Record<string, unknown>).value === true ||
       (approvalSetting as Record<string, unknown>).value === "true"
     );
+
+    // Subscribe to selected plan
+    if (formData.planId) {
+      const { data: plan } = await db.from("plans").select("period").eq("id", formData.planId).single();
+      let expiresAt: string | null = null;
+      if (plan) {
+        const period = (plan as Record<string, unknown>).period as string;
+        if (period === "monthly") { const d = new Date(); d.setMonth(d.getMonth() + 1); expiresAt = d.toISOString(); }
+        else if (period === "yearly") { const d = new Date(); d.setFullYear(d.getFullYear() + 1); expiresAt = d.toISOString(); }
+      }
+      await db.from("user_subscriptions").insert({
+        user_id: userId, plan_id: formData.planId,
+        starts_at: new Date().toISOString(), expires_at: expiresAt, status: "active",
+      } as never);
+    }
 
     if (requireApproval) {
       await db.from("profiles").update({ is_approved: false } as never).eq("user_id", userId);

@@ -9,7 +9,7 @@ import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { getMyBalance } from "@/lib/actions/users";
 import { useMyGroups } from "@/hooks/use-groups";
 import type { TaskFormData } from "@/types";
-import { Coins, AlertCircle, Upload, X, Link2, Plus } from "lucide-react";
+import { Coins, AlertCircle, Upload, X, Link2, Plus, Mail } from "lucide-react";
 
 export function TaskForm() {
   const router = useRouter();
@@ -45,7 +45,7 @@ export function TaskForm() {
   }
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<TaskFormData>({
-    defaultValues: { point_budget: 100, points_per_completion: 10, priority: "medium", status: "draft", target_type: "all_users", is_recurring: false, task_data: {} },
+    defaultValues: { point_budget: 100, points_per_completion: 10, proof_type: "both", priority: "medium", status: "draft", target_type: "all_users", is_recurring: false, task_data: {}, images: [], urls: [] },
   });
 
   const watchPlatform = watch("platform_id");
@@ -215,7 +215,16 @@ export function TaskForm() {
       <Card>
         <CardHeader><CardTitle>Settings</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>Proof Required *</Label>
+              <Select {...register("proof_type")}>
+                <option value="both">URL + Screenshot</option>
+                <option value="url">URL Only</option>
+                <option value="screenshot">Screenshot Only</option>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">What proof users must submit</p>
+            </div>
             <div className="space-y-1.5"><Label>Priority</Label><Select {...register("priority")}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></div>
             <div className="space-y-1.5"><Label>Deadline</Label><Input {...register("deadline")} type="datetime-local" /></div>
           </div>
@@ -234,7 +243,14 @@ export function TaskForm() {
             <div className="space-y-1.5"><Label>Select Group</Label><Select {...register("target_group_id", { valueAsNumber: true })}><option value="">Select a group</option>{groupsData?.data?.map((g: Record<string, unknown>) => <option key={g.id as number} value={g.id as number}>{String(g.name)}</option>)}</Select></div>
           )}
           {watchTargetType === "individual" && (
-            <div className="space-y-1.5"><Label>User ID</Label><Input {...register("target_user_id")} placeholder="Enter user ID" /></div>
+            <div className="space-y-1.5">
+              <Label>User Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input {...register("target_user_email")} type="email" placeholder="user@example.com" className="pl-11" />
+              </div>
+              <p className="text-[11px] text-muted-foreground">Enter the email of the user to assign this task to</p>
+            </div>
           )}
           <div className="pt-2 border-t border-border/50">
             <label className="flex items-center gap-2.5 cursor-pointer">

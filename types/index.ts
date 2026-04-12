@@ -61,6 +61,7 @@ export interface TaskFormData {
   task_data: Record<string, string>;
   images: string[];
   urls: string[];
+  proof_type: import("./database").ProofType;
   point_budget: number;
   points_per_completion: number;
   priority: import("./database").TaskPriority;
@@ -69,6 +70,7 @@ export interface TaskFormData {
   target_type: import("./database").AssignmentTarget;
   target_group_id: number | null;
   target_user_id: string | null;
+  target_user_email?: string;
   is_recurring: boolean;
   recurring_type: import("./database").RecurringType | null;
   recurring_end_date: string | null;

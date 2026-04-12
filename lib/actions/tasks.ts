@@ -13,6 +13,7 @@ const taskSchema = z.object({
   task_data: z.record(z.string(), z.string()).optional().default({}),
   images: z.array(z.string()).optional().default([]),
   urls: z.array(z.string()).optional().default([]),
+  proof_type: z.enum(["url", "screenshot", "both"]).default("both"),
   point_budget: z.number().min(0.01, "Budget must be greater than 0"),
   points_per_completion: z.number().min(0.01, "Points per completion must be greater than 0"),
   priority: z.enum(["low", "medium", "high"]),
@@ -21,6 +22,7 @@ const taskSchema = z.object({
   target_type: z.enum(["all_users", "group", "individual"]),
   target_group_id: z.number().nullable().optional(),
   target_user_id: z.string().nullable().optional(),
+  target_user_email: z.string().email().nullable().optional(),
   is_recurring: z.boolean().optional(),
   recurring_type: z.enum(["daily", "weekly", "monthly"]).nullable().optional(),
   recurring_end_date: z.string().nullable().optional(),
@@ -64,14 +66,26 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
       }
     }
 
+    // Resolve email to user_id for individual assignment
+    let resolvedUserId = validated.target_user_id || null;
+    if (validated.target_type === "individual" && validated.target_user_email && !resolvedUserId) {
+      const { data: foundUser } = await db.from("users").select("id").eq("email", validated.target_user_email.trim().toLowerCase()).single();
+      if (!foundUser) return { success: false, error: `No user found with email: ${validated.target_user_email}` };
+      resolvedUserId = (foundUser as Record<string, unknown>).id as string;
+    }
+
     // Admin tasks are auto-approved, user tasks need approval
     const approvalStatus = isAdmin ? "approved" : "pending_approval";
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { target_user_email: _email, ...taskFields } = validated;
 
     const { data: task, error } = await db
       .from("tasks")
       .insert({
-        ...validated,
+        ...taskFields,
         task_data: validated.task_data || {},
+        target_user_id: resolvedUserId,
         points: validated.points_per_completion,
         point_budget: validated.point_budget,
         points_per_completion: validated.points_per_completion,
@@ -96,7 +110,8 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
 
       // If admin (auto-approved), create assignments immediately
       if (isAdmin) {
-        await createAssignments(db, taskRecord.id as number, validated);
+        // Pass resolvedUserId so individual assignments work
+        await createAssignments(db, taskRecord.id as number, { ...validated, target_user_id: resolvedUserId });
       }
     }
 
@@ -271,12 +286,36 @@ export async function updateTask(
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
+    const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+
+    // Verify ownership or admin
+    const { data: existing } = await db.from("tasks").select("created_by, approval_status").eq("id", taskId).single();
+    if (!existing) return { success: false, error: "Task not found" };
+    const task = existing as Record<string, unknown>;
+
+    if (task.created_by !== session.user.id && !isAdmin) {
+      return { success: false, error: "You can only edit your own tasks" };
+    }
+
+    // If user (not admin) edits a live task, set it back to pending approval
+    const updateData = { ...formData };
+    if (!isAdmin && task.approval_status === "approved") {
+      updateData.approval_status = "pending_approval";
+    }
+
+    // Remove fields that shouldn't be in the DB update
+    delete updateData.target_user_email;
+
     const { error } = await db
       .from("tasks")
-      .update(formData as never)
+      .update(updateData as never)
       .eq("id", taskId);
 
     if (error) return { success: false, error: "Failed to update task" };
+
+    if (!isAdmin && task.approval_status === "approved") {
+      return { success: true, message: "Task updated and sent for admin re-approval" };
+    }
     return { success: true, message: "Task updated" };
   } catch {
     return { success: false, error: "Failed to update task" };
@@ -404,7 +443,7 @@ export async function getTaskById(taskId: number) {
 
   const { data: assignments } = await db
     .from("task_assignments")
-    .select("*, users!inner(id, name, email, image)")
+    .select("*, users!task_assignments_user_id_fkey(id, name, email, image)")
     .eq("task_id", taskId)
     .order("created_at", { ascending: false });
 

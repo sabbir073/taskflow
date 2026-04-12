@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardFooter, Input, Btn, Select, Badge } from "@/components/ui";
-import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins } from "lucide-react";
+import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar } from "lucide-react";
 import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints } from "@/hooks/use-users";
+import { getUserById } from "@/lib/actions/users";
+import { usePlans, useAdminAssignSubscription } from "@/hooks/use-plans";
 import { ConfirmDialog } from "./confirm-dialog";
 import { getInitials, formatDate } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants/roles";
@@ -21,12 +23,25 @@ export function UsersTable() {
   const [pointsAmount, setPointsAmount] = useState("");
   const [pointsReason, setPointsReason] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [menuDirection, setMenuDirection] = useState<"up" | "down">("down");
+  const [planTarget, setPlanTarget] = useState<string | null>(null);
+  const [viewProfile, setViewProfile] = useState<Record<string, unknown> | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
+  async function openProfile(userId: string) {
+    setLoadingProfile(true);
+    const data = await getUserById(userId);
+    setViewProfile(data as Record<string, unknown> | null);
+    setLoadingProfile(false);
+  }
 
   const { data, isLoading } = useUsers({ page, pageSize: 20, search, role: roleFilter || undefined, status: statusFilter || undefined });
   const updateRole = useUpdateUserRole();
   const updateStatus = useUpdateUserStatus();
   const removeUser = useDeleteUser();
   const assignPts = useAssignPoints();
+  const { data: plans } = usePlans();
+  const assignSub = useAdminAssignSubscription();
 
   const users = data?.data || [];
   const totalPages = data?.totalPages || 1;
@@ -78,24 +93,34 @@ export function UsersTable() {
                   return (
                     <tr key={userId} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-3">
+                        <button onClick={() => openProfile(userId)} className="flex items-center gap-3 text-left hover:opacity-80 transition-opacity">
                           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
-                          <div><p className="font-medium">{name}</p><p className="text-xs text-muted-foreground">{email}</p></div>
-                        </div>
+                          <div><p className="font-medium hover:text-primary transition-colors">{name}</p><p className="text-xs text-muted-foreground">{email}</p></div>
+                        </button>
                       </td>
                       <td className="px-5 py-3"><Badge variant="primary">{ROLE_LABELS[role] || role}</Badge></td>
                       <td className="px-5 py-3"><Badge variant={STATUS_VARIANT[status] || "default"}>{status}</Badge></td>
                       <td className="px-5 py-3 font-medium">{points.toFixed(2)}</td>
                       <td className="px-5 py-3">{tasks}</td>
                       <td className="px-5 py-3 text-muted-foreground">{formatDate(joined)}</td>
-                      <td className="px-5 py-3 text-right relative">
-                        <button onClick={() => setOpenMenu(openMenu === userId ? null : userId)} className="p-2 rounded-lg hover:bg-muted transition-colors">
+                      <td className="px-5 py-3 text-right">
+                        <div className="relative inline-block">
+                        <button onClick={(e) => {
+                          if (openMenu === userId) { setOpenMenu(null); return; }
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setMenuDirection(rect.bottom > window.innerHeight - 300 ? "up" : "down");
+                          setOpenMenu(userId);
+                        }} className="p-2 rounded-lg hover:bg-muted transition-colors">
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
                         {openMenu === userId && (
                           <>
                             <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                            <div className="absolute right-4 top-full mt-1 w-48 bg-card rounded-xl border border-border shadow-xl z-50 py-1">
+                            <div className={`absolute right-0 w-48 bg-card rounded-xl border border-border shadow-xl z-50 py-1 ${
+                              menuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"
+                            }`}>
+                              <button onClick={() => { openProfile(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Eye className="w-4 h-4 text-muted-foreground" /> View Profile</button>
+                              <div className="border-t border-border/50 my-1" />
                               <button onClick={() => { updateRole.mutate({ userId, role: "admin" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Shield className="w-4 h-4 text-muted-foreground" /> Make Admin</button>
                               <button onClick={() => { updateRole.mutate({ userId, role: "user" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><UserCheck className="w-4 h-4 text-muted-foreground" /> Make Member</button>
                               {status === "active" ? (
@@ -104,11 +129,13 @@ export function UsersTable() {
                                 <button onClick={() => { updateStatus.mutate({ userId, status: "active" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><UserCheck className="w-4 h-4 text-muted-foreground" /> Activate</button>
                               )}
                               <button onClick={() => { setPointsTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Coins className="w-4 h-4 text-warning" /> Assign Points</button>
+                              <button onClick={() => { setPlanTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><CreditCard className="w-4 h-4 text-primary" /> Assign Plan</button>
                               <div className="border-t border-border/50 my-1" />
                               <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-error hover:bg-error/5"><Trash2 className="w-4 h-4" /> Delete</button>
                             </div>
                           </>
                         )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -142,6 +169,153 @@ export function UsersTable() {
                 <Btn disabled={!pointsAmount} isLoading={assignPts.isPending} onClick={() => { assignPts.mutate({ userId: pointsTarget, amount: parseFloat(pointsAmount), reason: pointsReason }); setPointsTarget(null); setPointsAmount(""); setPointsReason(""); }}>Assign Points</Btn>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Plan modal */}
+      {!!planTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPlanTarget(null)}>
+          <div className="bg-card rounded-2xl p-6 w-full max-w-md shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-primary" /> Assign Subscription Plan
+            </h3>
+            <div className="space-y-3">
+              {!plans || plans.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No plans available. Create plans first.</p>
+              ) : (
+                plans.map((plan) => {
+                  const id = plan.id as number;
+                  const name = String(plan.name || "");
+                  const price = Number(plan.price || 0);
+                  const period = String(plan.period || "");
+                  const features = (plan.features || []) as string[];
+
+                  return (
+                    <div key={id} className="flex items-center justify-between p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-colors">
+                      <div>
+                        <p className="font-semibold">{name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {price === 0 ? "Free" : `$${price.toFixed(2)}`}{price > 0 ? `/${period}` : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {features.slice(0, 2).map((f) => typeof f === "string" ? f : String(f)).join(" • ")}
+                        </p>
+                      </div>
+                      <Btn size="sm" isLoading={assignSub.isPending}
+                        onClick={() => {
+                          assignSub.mutate({ userId: planTarget, planId: id });
+                          setPlanTarget(null);
+                        }}>
+                        Assign
+                      </Btn>
+                    </div>
+                  );
+                })
+              )}
+              <div className="flex justify-end pt-2">
+                <Btn variant="outline" onClick={() => setPlanTarget(null)}>Cancel</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Profile Modal */}
+      {(viewProfile || loadingProfile) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setViewProfile(null)}>
+          <div className="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {loadingProfile ? (
+              <div className="p-12 text-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+            ) : viewProfile ? (() => {
+              const vu = viewProfile.user as Record<string, unknown>;
+              const vp = viewProfile.profile as Record<string, unknown> | null;
+              const vs = viewProfile.stats as Record<string, unknown> | null;
+              const vName = String(vu?.name || "Unknown");
+              const vEmail = String(vu?.email || "");
+              const vRole = String(vp?.role || "user") as UserRole;
+              const vStatus = String(vp?.status || "active") as UserStatus;
+              const vPoints = Number(vp?.total_points || 0);
+              const vTasks = Number(vp?.tasks_completed || 0);
+              const vStreak = Number(vp?.current_streak || 0);
+              const vJoined = String(vu?.created_at || "");
+              const vPhone = String(vp?.phone || "");
+              const vApproved = vp?.is_approved !== false;
+
+              return (
+                <>
+                  {/* Header */}
+                  <div className="h-20 bg-gradient-to-r from-primary to-accent relative">
+                    <button onClick={() => setViewProfile(null)} className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/20 text-white hover:bg-black/40 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                    <div className="absolute -bottom-8 left-6">
+                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xl font-bold border-4 border-card shadow-lg">
+                        {getInitials(vName)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-12 px-6 pb-6">
+                    {/* Name + badges */}
+                    <div className="mb-4">
+                      <h3 className="text-lg font-bold">{vName}</h3>
+                      <p className="text-sm text-muted-foreground">{vEmail}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant="primary">{ROLE_LABELS[vRole] || vRole}</Badge>
+                        <Badge variant={STATUS_VARIANT[vStatus] || "default"}>{vStatus}</Badge>
+                        {!vApproved && <Badge variant="warning">Pending Approval</Badge>}
+                      </div>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-4 gap-3 mb-4">
+                      {[
+                        { icon: Trophy, label: "Points", value: vPoints.toFixed(2), color: "text-warning", bg: "bg-warning/10" },
+                        { icon: Target, label: "Tasks", value: String(vTasks), color: "text-success", bg: "bg-success/10" },
+                        { icon: Flame, label: "Streak", value: `${vStreak}d`, color: "text-accent", bg: "bg-accent/10" },
+                        { icon: Calendar, label: "Joined", value: vJoined ? formatDate(vJoined) : "-", color: "text-primary", bg: "bg-primary/10" },
+                      ].map((s) => (
+                        <div key={s.label} className="p-3 rounded-xl bg-muted/40 text-center">
+                          <s.icon className={`w-4 h-4 ${s.color} mx-auto mb-1`} />
+                          <p className="text-sm font-bold">{s.value}</p>
+                          <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Details */}
+                    <div className="space-y-2 text-sm">
+                      {vPhone && (
+                        <div className="flex justify-between py-2 border-b border-border/30">
+                          <span className="text-muted-foreground">Phone</span>
+                          <span className="font-medium">{vPhone}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Groups</span>
+                        <span className="font-medium">{Number(vs?.groupCount || 0)}</span>
+                      </div>
+                      <div className="flex justify-between py-2">
+                        <span className="text-muted-foreground">Task Assignments</span>
+                        <span className="font-medium">{Number(vs?.taskCount || 0)}</span>
+                      </div>
+                    </div>
+
+                    {/* Quick actions */}
+                    <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
+                      <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setViewProfile(null); }}>
+                        <Coins className="w-3.5 h-3.5 mr-1" /> Points
+                      </Btn>
+                      <Btn variant="outline" size="sm" onClick={() => { setPlanTarget(String(vu?.id || "")); setViewProfile(null); }}>
+                        <CreditCard className="w-3.5 h-3.5 mr-1" /> Plan
+                      </Btn>
+                      <Btn variant="ghost" size="sm" className="ml-auto" onClick={() => setViewProfile(null)}>Close</Btn>
+                    </div>
+                  </div>
+                </>
+              );
+            })() : null}
           </div>
         </div>
       )}

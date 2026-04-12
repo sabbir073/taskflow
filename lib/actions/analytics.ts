@@ -38,7 +38,7 @@ export async function getUserDashboardStats() {
 
 export async function getRecentActivity(limit = 10) {
   const db = getServerClient();
-  const { data } = await db.from("task_assignments").select("id, status, submitted_at, reviewed_at, points_awarded, users!inner(name), tasks!inner(title)").order("updated_at", { ascending: false }).limit(limit);
+  const { data } = await db.from("task_assignments").select("id, status, submitted_at, reviewed_at, points_awarded, users!task_assignments_user_id_fkey(name), tasks!inner(title)").order("updated_at", { ascending: false }).limit(limit);
   return (data || []) as Record<string, unknown>[];
 }
 
@@ -273,7 +273,7 @@ export async function exportReportCSV(type: "tasks" | "users" | "points" | "assi
   }
 
   if (type === "assignments") {
-    const { data } = await db.from("task_assignments").select("id, status, points_awarded, submitted_at, reviewed_at, created_at, users!inner(name), tasks!inner(title)").gte("created_at", from).lte("created_at", to).order("created_at", { ascending: false });
+    const { data } = await db.from("task_assignments").select("id, status, points_awarded, submitted_at, reviewed_at, created_at, users!task_assignments_user_id_fkey(name), tasks!inner(title)").gte("created_at", from).lte("created_at", to).order("created_at", { ascending: false });
     const rows = (data || []) as Record<string, unknown>[];
     const headers = "ID,User,Task,Status,Points Awarded,Submitted,Reviewed,Created";
     const csv = rows.map(r => {

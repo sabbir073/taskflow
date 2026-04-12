@@ -107,17 +107,14 @@ export async function submitProof(
     if (record.user_id !== session.user.id) return { success: false, error: "Unauthorized" };
     if (!["in_progress", "rejected"].includes(record.status as string)) return { success: false, error: "Task is not in a submittable state" };
 
-    // Validate proof type requirements
-    const { data: task } = await db.from("tasks").select("task_type_id").eq("id", record.task_id).single();
+    // Validate proof type - use task's own proof_type field
+    const { data: task } = await db.from("tasks").select("proof_type").eq("id", record.task_id).single();
     if (task) {
-      const { data: taskType } = await db.from("task_types").select("proof_type").eq("id", (task as Record<string, unknown>).task_type_id).single();
-      if (taskType) {
-        const proofType = (taskType as Record<string, unknown>).proof_type as string;
-        if ((proofType === "url" || proofType === "both") && (!data.proof_urls || data.proof_urls.length === 0))
-          return { success: false, error: "At least one URL proof is required" };
-        if ((proofType === "screenshot" || proofType === "both") && (!data.proof_screenshots || data.proof_screenshots.length === 0))
-          return { success: false, error: "At least one screenshot proof is required" };
-      }
+      const proofType = String((task as Record<string, unknown>).proof_type || "both");
+      if ((proofType === "url" || proofType === "both") && (!data.proof_urls || data.proof_urls.length === 0))
+        return { success: false, error: "At least one URL proof is required" };
+      if ((proofType === "screenshot" || proofType === "both") && (!data.proof_screenshots || data.proof_screenshots.length === 0))
+        return { success: false, error: "At least one screenshot proof is required" };
     }
 
     await db.from("task_assignments").update({
@@ -207,10 +204,26 @@ export async function getPendingReviews(params?: PaginationParams): Promise<Pagi
 
   const { data, count } = await db
     .from("task_assignments")
-    .select("*, tasks!inner(title, points, points_per_completion, platform_id, platforms!inner(name, icon)), users!inner(id, name, email, image)", { count: "exact" })
+    .select("*, tasks!inner(title, points, points_per_completion, platform_id, platforms!inner(name, icon)), users!task_assignments_user_id_fkey(id, name, email, image)", { count: "exact" })
     .eq("status", "submitted")
     .order("submitted_at", { ascending: true })
     .range(offset, offset + pageSize - 1);
 
   return { data: (data || []) as Record<string, unknown>[], total: count || 0, page, pageSize, totalPages: Math.ceil((count || 0) / pageSize) };
+}
+
+// ===== Get current user's assignment for a specific task =====
+export async function getMyAssignmentForTask(taskId: number): Promise<Record<string, unknown> | null> {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const db = getServerClient();
+  const { data } = await db
+    .from("task_assignments")
+    .select("*")
+    .eq("task_id", taskId)
+    .eq("user_id", session.user.id)
+    .single();
+
+  return (data as Record<string, unknown>) || null;
 }

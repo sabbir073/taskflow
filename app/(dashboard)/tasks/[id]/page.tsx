@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import type { UserRole } from "@/types/database";
 
 export const metadata: Metadata = { title: "Task Details" };
+export const dynamic = "force-dynamic";
 
 export default async function TaskDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireAuth();

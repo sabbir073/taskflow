@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Textarea, Btn, Badge } from "@/components/ui";
 import { CheckCircle, XCircle, Clock, Upload, ExternalLink, Image as ImageIcon, Loader2 } from "lucide-react";
 import { useAcceptTask, useSubmitProof, useReviewAssignment } from "@/hooks/use-tasks";
+import { getMyAssignmentForTask } from "@/lib/actions/assignments";
 import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 
@@ -19,12 +20,16 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   const taskType = task.task_types as Record<string, unknown> | undefined;
   const platformSlug = String(platform?.slug || "");
   const platformConfig = PLATFORM_CONFIG[platformSlug as keyof typeof PLATFORM_CONFIG];
-  const proofType = String(taskType?.proof_type || "url");
+  const proofType = String(task.proof_type || taskType?.proof_type || "both");
 
   const myAssignment = assignments.find((a) => {
+    // Check both user_id directly and nested users.id from join
+    if (String(a.user_id) === String(currentUserId)) return true;
     const user = a.users as Record<string, unknown> | undefined;
-    return (user?.id || a.user_id) === currentUserId;
+    if (String(user?.id || "") === String(currentUserId)) return true;
+    return false;
   });
+
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -52,7 +57,8 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
           </CardContent>
         </Card>
 
-        {!isAdmin && myAssignment && <ProofSection assignment={myAssignment} proofType={proofType} />}
+        {/* Show proof section for anyone who has an assignment */}
+        <MyProofSection taskId={task.id as number} proofType={proofType} />
 
         {isAdmin && (
           <Card>
@@ -95,7 +101,30 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   );
 }
 
-function ProofSection({ assignment, proofType }: { assignment: Record<string, unknown>; proofType: string }) {
+// Client-side component that fetches the user's assignment and renders ProofSection
+function MyProofSection({ taskId, proofType }: { taskId: number; proofType: string }) {
+  const [assignment, setAssignment] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setLoading(true);
+    getMyAssignmentForTask(taskId).then((data) => {
+      setAssignment(data);
+      setLoading(false);
+    });
+  }, [taskId, refreshKey]);
+
+  if (loading) return (
+    <Card><CardContent className="py-6 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></CardContent></Card>
+  );
+
+  if (!assignment) return null; // User has no assignment for this task
+
+  return <ProofSection assignment={assignment} proofType={proofType} onRefresh={() => setRefreshKey((k) => k + 1)} />;
+}
+
+function ProofSection({ assignment, proofType, onRefresh }: { assignment: Record<string, unknown>; proofType: string; onRefresh?: () => void }) {
   const status = String(assignment.status);
   const acceptTask = useAcceptTask();
   const submitProof = useSubmitProof();
@@ -141,7 +170,7 @@ function ProofSection({ assignment, proofType }: { assignment: Record<string, un
   if (status === "pending") return (
     <Card><CardContent className="text-center py-8">
       <p className="text-sm text-muted-foreground mb-4">Accept this task to get started</p>
-      <Btn onClick={() => acceptTask.mutate(assignment.id as number)} isLoading={acceptTask.isPending}>Accept Task</Btn>
+      <Btn onClick={() => acceptTask.mutate(assignment.id as number, { onSuccess: () => onRefresh?.() })} isLoading={acceptTask.isPending}>Accept Task</Btn>
     </CardContent></Card>
   );
 
@@ -196,7 +225,7 @@ function ProofSection({ assignment, proofType }: { assignment: Record<string, un
         <Btn className="w-full" isLoading={submitProof.isPending} onClick={() => submitProof.mutate({
           assignmentId: assignment.id as number,
           data: { proof_urls: proofUrls, proof_screenshots: proofScreenshots, proof_notes: proofNotes || undefined },
-        })}>Submit Proof</Btn>
+        }, { onSuccess: () => onRefresh?.() })}>Submit Proof</Btn>
       </CardContent>
     </Card>
   );

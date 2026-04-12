@@ -124,6 +124,7 @@ export interface Task {
   task_data: Record<string, string>;
   images: string[];
   urls: string[];
+  proof_type: ProofType;
   points: number;
   point_budget: number;
   points_per_completion: number;
