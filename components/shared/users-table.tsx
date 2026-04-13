@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardFooter, Input, Btn, Select, Badge } from "@/components/ui";
-import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar } from "lucide-react";
+import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus } from "lucide-react";
 import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints } from "@/hooks/use-users";
 import { getUserById } from "@/lib/actions/users";
 import { usePlans, useAdminAssignSubscription } from "@/hooks/use-plans";
@@ -20,6 +20,7 @@ export function UsersTable() {
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [pointsTarget, setPointsTarget] = useState<string | null>(null);
+  const [pointsMode, setPointsMode] = useState<"assign" | "deduct">("assign");
   const [pointsAmount, setPointsAmount] = useState("");
   const [pointsReason, setPointsReason] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -128,7 +129,8 @@ export function UsersTable() {
                               ) : (
                                 <button onClick={() => { updateStatus.mutate({ userId, status: "active" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><UserCheck className="w-4 h-4 text-muted-foreground" /> Activate</button>
                               )}
-                              <button onClick={() => { setPointsTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Coins className="w-4 h-4 text-warning" /> Assign Points</button>
+                              <button onClick={() => { setPointsTarget(userId); setPointsMode("assign"); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Plus className="w-4 h-4 text-success" /> Assign Points</button>
+                              <button onClick={() => { setPointsTarget(userId); setPointsMode("deduct"); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Minus className="w-4 h-4 text-error" /> Deduct Points</button>
                               <button onClick={() => { setPlanTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><CreditCard className="w-4 h-4 text-primary" /> Assign Plan</button>
                               <div className="border-t border-border/50 my-1" />
                               <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-error hover:bg-error/5"><Trash2 className="w-4 h-4" /> Delete</button>
@@ -160,13 +162,40 @@ export function UsersTable() {
       {!!pointsTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPointsTarget(null)}>
           <div className="bg-card rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Coins className="w-5 h-5 text-warning" /> Assign Points</h3>
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+              {pointsMode === "assign" ? <Plus className="w-5 h-5 text-success" /> : <Minus className="w-5 h-5 text-error" />}
+              {pointsMode === "assign" ? "Assign Points" : "Deduct Points"}
+            </h3>
             <div className="space-y-4">
-              <div className="space-y-1.5"><label className="text-sm font-medium">Amount (negative to deduct)</label><Input type="number" step="0.01" value={pointsAmount} onChange={(e) => setPointsAmount(e.target.value)} placeholder="e.g. 100 or -50" autoFocus /></div>
-              <div className="space-y-1.5"><label className="text-sm font-medium">Reason</label><Input value={pointsReason} onChange={(e) => setPointsReason(e.target.value)} placeholder="Reason for assignment" /></div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Amount</label>
+                <div className="relative">
+                  <Coins className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input type="number" step="0.01" min="0" value={pointsAmount} onChange={(e) => setPointsAmount(e.target.value)} placeholder="e.g. 100" autoFocus className="pl-11" />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {pointsMode === "assign" ? "This amount will be added to the user's balance" : "This amount will be deducted from the user's balance"}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Reason</label>
+                <Input value={pointsReason} onChange={(e) => setPointsReason(e.target.value)} placeholder={pointsMode === "assign" ? "Reason for assignment" : "Reason for deduction"} />
+              </div>
               <div className="flex gap-3 justify-end pt-2">
                 <Btn variant="outline" onClick={() => { setPointsTarget(null); setPointsAmount(""); setPointsReason(""); }}>Cancel</Btn>
-                <Btn disabled={!pointsAmount} isLoading={assignPts.isPending} onClick={() => { assignPts.mutate({ userId: pointsTarget, amount: parseFloat(pointsAmount), reason: pointsReason }); setPointsTarget(null); setPointsAmount(""); setPointsReason(""); }}>Assign Points</Btn>
+                <Btn variant={pointsMode === "assign" ? "primary" : "danger"}
+                  disabled={!pointsAmount || parseFloat(pointsAmount) <= 0}
+                  isLoading={assignPts.isPending}
+                  onClick={() => {
+                    const amount = parseFloat(pointsAmount);
+                    const finalAmount = pointsMode === "deduct" ? -Math.abs(amount) : Math.abs(amount);
+                    assignPts.mutate({ userId: pointsTarget, amount: finalAmount, reason: pointsReason });
+                    setPointsTarget(null);
+                    setPointsAmount("");
+                    setPointsReason("");
+                  }}>
+                  {pointsMode === "assign" ? "Assign" : "Deduct"} Points
+                </Btn>
               </div>
             </div>
           </div>
@@ -304,8 +333,11 @@ export function UsersTable() {
 
                     {/* Quick actions */}
                     <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
-                      <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setViewProfile(null); }}>
-                        <Coins className="w-3.5 h-3.5 mr-1" /> Points
+                      <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setPointsMode("assign"); setViewProfile(null); }}>
+                        <Plus className="w-3.5 h-3.5 mr-1 text-success" /> Assign
+                      </Btn>
+                      <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setPointsMode("deduct"); setViewProfile(null); }}>
+                        <Minus className="w-3.5 h-3.5 mr-1 text-error" /> Deduct
                       </Btn>
                       <Btn variant="outline" size="sm" onClick={() => { setPlanTarget(String(vu?.id || "")); setViewProfile(null); }}>
                         <CreditCard className="w-3.5 h-3.5 mr-1" /> Plan

@@ -32,7 +32,12 @@ export function useTask(taskId: number) {
 }
 
 export function useMyTasks(params: PaginationParams & { status?: string }) {
-  return useQuery({ queryKey: ["my-tasks", params], queryFn: () => getMyTasks(params) });
+  return useQuery({
+    queryKey: ["my-tasks", params],
+    queryFn: () => getMyTasks(params),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+  });
 }
 
 export function usePendingReviews(params?: PaginationParams) {
@@ -44,8 +49,11 @@ export function useCreateTask() {
   return useMutation({
     mutationFn: createTask,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+      } else toast.error(r.error);
     },
   });
 }
@@ -55,8 +63,11 @@ export function useDeleteTask() {
   return useMutation({
     mutationFn: deleteTask,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+      } else toast.error(r.error);
     },
   });
 }
@@ -66,8 +77,11 @@ export function usePublishTask() {
   return useMutation({
     mutationFn: publishTask,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+      } else toast.error(r.error);
     },
   });
 }
@@ -77,8 +91,12 @@ export function useAcceptTask() {
   return useMutation({
     mutationFn: acceptTask,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["my-tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["my-tasks"] });
+        qc.invalidateQueries({ queryKey: ["unread-count"] });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+      } else toast.error(r.error);
     },
   });
 }
@@ -89,8 +107,12 @@ export function useSubmitProof() {
     mutationFn: ({ assignmentId, data }: { assignmentId: number; data: { proof_urls: string[]; proof_screenshots: string[]; proof_notes?: string } }) =>
       submitProof(assignmentId, data),
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["my-tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["my-tasks"] });
+        qc.invalidateQueries({ queryKey: ["unread-count"] });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+      } else toast.error(r.error);
     },
   });
 }
@@ -105,6 +127,11 @@ export function useReviewAssignment() {
         toast.success(r.message);
         qc.invalidateQueries({ queryKey: ["pending-reviews"] });
         qc.invalidateQueries({ queryKey: ["task"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+        qc.invalidateQueries({ queryKey: ["unread-count"] });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+        qc.invalidateQueries({ queryKey: ["my-tasks"] });
+        qc.invalidateQueries({ queryKey: ["tasks"] });
       } else toast.error(r.error);
     },
   });
@@ -119,8 +146,12 @@ export function useApproveTask() {
   return useMutation({
     mutationFn: approveTask,
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["pending-approval-tasks"] }); qc.invalidateQueries({ queryKey: ["tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["pending-approval-tasks"] });
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+      } else toast.error(r.error);
     },
   });
 }
@@ -130,8 +161,12 @@ export function useRejectTask() {
   return useMutation({
     mutationFn: ({ taskId, reason }: { taskId: number; reason?: string }) => rejectTask(taskId, reason),
     onSuccess: (r) => {
-      if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["pending-approval-tasks"] }); qc.invalidateQueries({ queryKey: ["tasks"] }); }
-      else toast.error(r.error);
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["pending-approval-tasks"] });
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+      } else toast.error(r.error);
     },
   });
 }

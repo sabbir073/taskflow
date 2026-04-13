@@ -16,10 +16,19 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
 export function NotificationsList() {
   const [page, setPage] = useState(1);
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["notifications", page], queryFn: () => getNotifications({ page, pageSize: 20 }) });
-  const markRead = useMutation({ mutationFn: markAsRead, onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }) });
-  const markAll = useMutation({ mutationFn: markAllAsRead, onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }) });
-  const deleteOne = useMutation({ mutationFn: deleteNotification, onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }) });
+  const { data, isLoading } = useQuery({
+    queryKey: ["notifications", page],
+    queryFn: () => getNotifications({ page, pageSize: 20 }),
+    refetchInterval: 10000, // poll every 10s for new notifications
+    refetchOnWindowFocus: true,
+  });
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["notifications"] });
+    qc.invalidateQueries({ queryKey: ["unread-count"] });
+  };
+  const markRead = useMutation({ mutationFn: markAsRead, onSuccess: invalidateAll });
+  const markAll = useMutation({ mutationFn: markAllAsRead, onSuccess: invalidateAll });
+  const deleteOne = useMutation({ mutationFn: deleteNotification, onSuccess: invalidateAll });
 
   const items = data?.data || [];
   const totalPages = data?.totalPages || 1;

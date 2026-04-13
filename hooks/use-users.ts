@@ -83,6 +83,9 @@ export function useAssignPoints() {
       if (result.success) {
         toast.success(result.message);
         queryClient.invalidateQueries({ queryKey: ["users"] });
+        queryClient.invalidateQueries({ queryKey: ["my-balance"] });
+        queryClient.invalidateQueries({ queryKey: ["unread-count"] });
+        queryClient.invalidateQueries({ queryKey: ["notifications"] });
       } else {
         toast.error(result.error);
       }

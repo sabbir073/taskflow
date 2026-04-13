@@ -55,6 +55,8 @@ export function TaskForm() {
   const watchBudget = watch("point_budget");
   const watchPerCompletion = watch("points_per_completion");
 
+  const isIndividual = watchTargetType === "individual";
+
   useEffect(() => { if (watchPlatform) setSelectedPlatformId(watchPlatform); }, [watchPlatform]);
   useEffect(() => {
     if (watchTaskType && taskTypes) {
@@ -63,14 +65,39 @@ export function TaskForm() {
     }
   }, [watchTaskType, taskTypes, setValue]);
 
+  // Individual tasks: full reward goes to the single user — budget = per-completion
+  useEffect(() => {
+    if (isIndividual) setValue("point_budget", watchPerCompletion || 0);
+  }, [isIndividual, watchPerCompletion, setValue]);
+
   const selectedTaskType = taskTypes?.find((t) => (t.id as number) === watchTaskType);
   const requiredFields = selectedTaskType ? (selectedTaskType.required_fields as Array<{ name: string; label: string; type: string; placeholder?: string }>) : [];
-  const maxCompletions = watchPerCompletion > 0 ? Math.floor(watchBudget / watchPerCompletion) : 0;
-  const insufficientBalance = watchBudget > balance;
+  const effectiveBudget = isIndividual ? (watchPerCompletion || 0) : (watchBudget || 0);
+  const maxCompletions = isIndividual ? 1 : (watchPerCompletion > 0 ? Math.floor(watchBudget / watchPerCompletion) : 0);
+  const insufficientBalance = effectiveBudget > balance;
 
   async function onSubmit(data: TaskFormData) {
-    const result = await createTask.mutateAsync({ ...data, images: taskImages, urls: taskUrls });
+    // Auto-include any URL typed but not yet "Added"
+    const pendingUrl = newUrl.trim();
+    const finalUrls = pendingUrl ? [...taskUrls, pendingUrl] : taskUrls;
+    if (pendingUrl) { setTaskUrls(finalUrls); setNewUrl(""); }
+
+    const payload = {
+      ...data,
+      images: taskImages,
+      urls: finalUrls,
+      // Individual: full budget goes to the one assigned user
+      point_budget: data.target_type === "individual" ? data.points_per_completion : data.point_budget,
+    };
+    const result = await createTask.mutateAsync(payload);
     if (result.success) { getMyBalance().then(setBalance); router.push("/tasks"); }
+  }
+
+  function addUrl() {
+    const v = newUrl.trim();
+    if (!v) return;
+    setTaskUrls([...taskUrls, v]);
+    setNewUrl("");
   }
 
   return (
@@ -175,58 +202,17 @@ export function TaskForm() {
               </div>
             ))}
             <div className="flex gap-2">
-              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://example.com" type="url" />
-              <Btn type="button" variant="outline" size="sm" onClick={() => { if (newUrl.trim()) { setTaskUrls([...taskUrls, newUrl.trim()]); setNewUrl(""); } }}>
+              <Input
+                value={newUrl}
+                onChange={(e) => setNewUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addUrl(); } }}
+                placeholder="https://example.com"
+                type="url"
+              />
+              <Btn type="button" variant="outline" size="sm" onClick={addUrl}>
                 <Plus className="w-4 h-4 mr-1" /> Add
               </Btn>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Points Budget */}
-      <Card>
-        <CardHeader><CardTitle>Points Budget</CardTitle><CardDescription>Set total budget and reward per completion</CardDescription></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Total Budget (pts) *</Label>
-              <Input {...register("point_budget", { valueAsNumber: true, min: { value: 0.01, message: "Min 0.01" } })} type="number" step="0.01" min={0.01} error={!!errors.point_budget || insufficientBalance} />
-              {errors.point_budget && <FieldError>{errors.point_budget.message}</FieldError>}
-              {insufficientBalance && !errors.point_budget && (
-                <p className="text-xs text-error flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Exceeds your balance ({balance.toFixed(2)})</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Points per Completion *</Label>
-              <Input {...register("points_per_completion", { valueAsNumber: true, min: { value: 0.01, message: "Min 0.01" } })} type="number" step="0.01" min={0.01} error={!!errors.points_per_completion} />
-              {errors.points_per_completion && <FieldError>{errors.points_per_completion.message}</FieldError>}
-            </div>
-          </div>
-          <div className="p-3 rounded-xl bg-muted/40 text-sm space-y-1.5">
-            <div className="flex justify-between"><span className="text-muted-foreground">Max completions</span><span className="font-semibold">{maxCompletions}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Cost per completion</span><span className="font-semibold">{(watchPerCompletion || 0).toFixed(2)} pts</span></div>
-            <div className="flex justify-between border-t border-border/50 pt-1.5 mt-1"><span className="text-muted-foreground">Total budget</span><span className="font-bold text-warning">{(watchBudget || 0).toFixed(2)} pts</span></div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Settings */}
-      <Card>
-        <CardHeader><CardTitle>Settings</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <Label>Proof Required *</Label>
-              <Select {...register("proof_type")}>
-                <option value="both">URL + Screenshot</option>
-                <option value="url">URL Only</option>
-                <option value="screenshot">Screenshot Only</option>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">What proof users must submit</p>
-            </div>
-            <div className="space-y-1.5"><Label>Priority</Label><Select {...register("priority")}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></div>
-            <div className="space-y-1.5"><Label>Deadline</Label><Input {...register("deadline")} type="datetime-local" /></div>
           </div>
         </CardContent>
       </Card>
@@ -265,6 +251,68 @@ export function TaskForm() {
               <div className="space-y-1.5"><Label>Max Completions</Label><Input {...register("max_completions", { valueAsNumber: true })} type="number" min={1} placeholder="Unlimited" /></div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Points Budget */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Points Budget</CardTitle>
+          <CardDescription>
+            {isIndividual
+              ? "The full reward goes to the single assigned user"
+              : "Set total budget and reward per completion"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className={`grid grid-cols-1 gap-4 ${isIndividual ? "" : "sm:grid-cols-2"}`}>
+            {!isIndividual && (
+              <div className="space-y-1.5">
+                <Label>Total Budget (pts) *</Label>
+                <Input {...register("point_budget", { valueAsNumber: true, min: { value: 0.01, message: "Min 0.01" } })} type="number" step="0.01" min={0.01} error={!!errors.point_budget || insufficientBalance} />
+                {errors.point_budget && <FieldError>{errors.point_budget.message}</FieldError>}
+                {insufficientBalance && !errors.point_budget && (
+                  <p className="text-xs text-error flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Exceeds your balance ({balance.toFixed(2)})</p>
+                )}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>{isIndividual ? "Reward for User (pts) *" : "Points per Completion *"}</Label>
+              <Input {...register("points_per_completion", { valueAsNumber: true, min: { value: 0.01, message: "Min 0.01" } })} type="number" step="0.01" min={0.01} error={!!errors.points_per_completion || (isIndividual && insufficientBalance)} />
+              {errors.points_per_completion && <FieldError>{errors.points_per_completion.message}</FieldError>}
+              {isIndividual && insufficientBalance && !errors.points_per_completion && (
+                <p className="text-xs text-error flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Exceeds your balance ({balance.toFixed(2)})</p>
+              )}
+            </div>
+          </div>
+          <div className="p-3 rounded-xl bg-muted/40 text-sm space-y-1.5">
+            <div className="flex justify-between"><span className="text-muted-foreground">Max completions</span><span className="font-semibold">{maxCompletions}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">{isIndividual ? "Reward to user" : "Cost per completion"}</span><span className="font-semibold">{(watchPerCompletion || 0).toFixed(2)} pts</span></div>
+            <div className="flex justify-between border-t border-border/50 pt-1.5 mt-1"><span className="text-muted-foreground">Total budget</span><span className="font-bold text-warning">{effectiveBudget.toFixed(2)} pts</span></div>
+            {isIndividual && (
+              <p className="text-[11px] text-muted-foreground pt-1">The full amount will be transferred to the assigned user on approval.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Settings */}
+      <Card>
+        <CardHeader><CardTitle>Settings</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>Proof Required *</Label>
+              <Select {...register("proof_type")}>
+                <option value="both">URL + Screenshot</option>
+                <option value="url">URL Only</option>
+                <option value="screenshot">Screenshot Only</option>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">What proof users must submit</p>
+            </div>
+            <div className="space-y-1.5"><Label>Priority</Label><Select {...register("priority")}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></div>
+            <div className="space-y-1.5"><Label>Deadline</Label><Input {...register("deadline")} type="datetime-local" /></div>
+          </div>
         </CardContent>
       </Card>
 

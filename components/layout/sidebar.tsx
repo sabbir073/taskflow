@@ -9,7 +9,7 @@ import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard,
+  CreditCard, Megaphone,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
@@ -30,6 +30,7 @@ const navItems: NavItem[] = [
   { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" },
+  { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" },

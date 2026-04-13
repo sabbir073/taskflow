@@ -47,6 +47,11 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
         return { success: false, error: "Your account is suspended" };
     }
 
+    // Individual tasks: full budget goes to the single assigned user
+    if (validated.target_type === "individual") {
+      validated.point_budget = validated.points_per_completion;
+    }
+
     // Validate budget: points_per_completion * possible completions <= point_budget
     if (validated.points_per_completion > validated.point_budget) {
       return { success: false, error: "Points per completion cannot exceed total budget" };
@@ -111,7 +116,29 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
       // If admin (auto-approved), create assignments immediately
       if (isAdmin) {
         // Pass resolvedUserId so individual assignments work
-        await createAssignments(db, taskRecord.id as number, { ...validated, target_user_id: resolvedUserId });
+        await createAssignments(
+          db,
+          taskRecord.id as number,
+          { ...validated, target_user_id: resolvedUserId },
+          validated.title,
+          session.user.id
+        );
+      } else {
+        // User-created task — notify all admins in real-time for review
+        const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+        const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
+        if (adminIds.length > 0) {
+          const creatorName = session.user.name || "A user";
+          const notifs = adminIds.map((uid) => ({
+            user_id: uid,
+            type: "system",
+            title: "New Task — Review Needed",
+            message: `${creatorName} created a new task "${validated.title}". Please review.`,
+            link: `/tasks/${taskRecord.id}`,
+            data: { task_id: taskRecord.id, created_by: session.user.id },
+          }));
+          await db.from("notifications").insert(notifs as never[]);
+        }
       }
     }
 
@@ -163,7 +190,9 @@ async function deductBudgetFromWallet(
 async function createAssignments(
   db: ReturnType<typeof getServerClient>,
   taskId: number,
-  task: z.infer<typeof taskSchema>
+  task: z.infer<typeof taskSchema>,
+  taskTitle?: string,
+  creatorId?: string
 ) {
   let userIds: string[] = [];
 
@@ -183,14 +212,32 @@ async function createAssignments(
     userIds = [task.target_user_id];
   }
 
-  if (userIds.length > 0) {
-    const assignments = userIds.map((userId) => ({
-      task_id: taskId,
-      user_id: userId,
-      status: "pending",
-    }));
-    await db.from("task_assignments").insert(assignments as never[]);
-  }
+  // Don't notify the creator themselves
+  if (creatorId) userIds = userIds.filter((id) => id !== creatorId);
+
+  if (userIds.length === 0) return;
+
+  const assignments = userIds.map((userId) => ({
+    task_id: taskId,
+    user_id: userId,
+    status: "pending",
+  }));
+  await db.from("task_assignments").insert(assignments as never[]);
+
+  // Notify each assigned user in real-time
+  const title = taskTitle || String((task as Record<string, unknown>).title || "a task");
+  const isIndividual = task.target_type === "individual";
+  const notifs = userIds.map((userId) => ({
+    user_id: userId,
+    type: "task_assigned",
+    title: "New Task Assigned",
+    message: isIndividual
+      ? `You've been assigned a new task: "${title}". Accept it to get started.`
+      : `A new task is available: "${title}". Accept it to get started.`,
+    link: `/tasks/${taskId}`,
+    data: { task_id: taskId },
+  }));
+  await db.from("notifications").insert(notifs as never[]);
 }
 
 // Admin: approve a user-created task
@@ -213,9 +260,27 @@ export async function approveTask(taskId: number): Promise<ApiResponse> {
 
     await db.from("tasks").update({ approval_status: "approved" } as never).eq("id", taskId);
 
-    // Create assignments now that it's approved
+    // Create assignments now that it's approved — notifies all assignees in real-time
     if (t.status === "pending") {
-      await createAssignments(db, taskId, t as unknown as z.infer<typeof taskSchema>);
+      await createAssignments(
+        db,
+        taskId,
+        t as unknown as z.infer<typeof taskSchema>,
+        String(t.title || "task"),
+        t.created_by as string
+      );
+    }
+
+    // Notify the creator (only if they're not the one approving)
+    if (t.created_by !== session.user.id) {
+      await db.from("notifications").insert({
+        user_id: t.created_by,
+        type: "task_approved",
+        title: "Task Approved",
+        message: `Your task "${String(t.title || "task")}" has been approved and is now live.`,
+        link: `/tasks/${taskId}`,
+        data: { task_id: taskId },
+      } as never);
     }
 
     return { success: true, message: "Task approved" };
@@ -289,7 +354,7 @@ export async function updateTask(
     const isAdmin = ["super_admin", "admin"].includes(session.user.role);
 
     // Verify ownership or admin
-    const { data: existing } = await db.from("tasks").select("created_by, approval_status").eq("id", taskId).single();
+    const { data: existing } = await db.from("tasks").select("created_by, approval_status, title").eq("id", taskId).single();
     if (!existing) return { success: false, error: "Task not found" };
     const task = existing as Record<string, unknown>;
 
@@ -299,7 +364,8 @@ export async function updateTask(
 
     // If user (not admin) edits a live task, set it back to pending approval
     const updateData = { ...formData };
-    if (!isAdmin && task.approval_status === "approved") {
+    const needsReapproval = !isAdmin && task.approval_status === "approved";
+    if (needsReapproval) {
       updateData.approval_status = "pending_approval";
     }
 
@@ -313,9 +379,43 @@ export async function updateTask(
 
     if (error) return { success: false, error: "Failed to update task" };
 
-    if (!isAdmin && task.approval_status === "approved") {
+    const taskTitle = String(task.title || "task");
+    const editorName = session.user.name || "Someone";
+
+    if (isAdmin) {
+      // Admin edited — notify the creator (if not admin themselves)
+      if (task.created_by !== session.user.id) {
+        await db.from("notifications").insert({
+          user_id: task.created_by,
+          type: "system",
+          title: "Task Updated by Admin",
+          message: `Admin updated your task "${taskTitle}".`,
+          link: `/tasks/${taskId}`,
+          data: { task_id: taskId, updated_by: session.user.id },
+        } as never);
+      }
+      return { success: true, message: "Task updated" };
+    }
+
+    // User edited their own task
+    if (needsReapproval) {
+      // Notify all admins that a task needs re-review
+      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+      const adminIds = ((admins || []) as Record<string, unknown>[]).map(a => a.user_id as string);
+      if (adminIds.length > 0) {
+        const notifs = adminIds.map(uid => ({
+          user_id: uid,
+          type: "system",
+          title: "Task Updated — Review Needed",
+          message: `${editorName} updated the task "${taskTitle}". Please review.`,
+          link: `/tasks/${taskId}`,
+          data: { task_id: taskId, updated_by: session.user.id },
+        }));
+        await db.from("notifications").insert(notifs as never[]);
+      }
       return { success: true, message: "Task updated and sent for admin re-approval" };
     }
+
     return { success: true, message: "Task updated" };
   } catch {
     return { success: false, error: "Failed to update task" };
@@ -330,9 +430,13 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
     const db = getServerClient();
 
     // Refund remaining budget to creator
-    const { data: task } = await db.from("tasks").select("created_by, point_budget, points_spent").eq("id", taskId).single();
+    const { data: task } = await db.from("tasks").select("title, created_by, point_budget, points_spent").eq("id", taskId).single();
+    let creatorId: string | null = null;
+    let taskTitle = "a task";
     if (task) {
       const t = task as Record<string, unknown>;
+      creatorId = (t.created_by as string) || null;
+      taskTitle = String(t.title || "a task");
       const refund = Number(t.point_budget || 0) - Number(t.points_spent || 0);
       if (refund > 0) {
         const { data: profile } = await db.from("profiles").select("total_points").eq("user_id", t.created_by).single();
@@ -351,6 +455,20 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
     }
 
     await db.from("tasks").delete().eq("id", taskId);
+
+    // Notify the creator in real-time if someone else (admin) deleted their task
+    if (creatorId && creatorId !== session.user.id) {
+      const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+      const deleterName = isAdmin ? "An admin" : (session.user.name || "Someone");
+      await db.from("notifications").insert({
+        user_id: creatorId,
+        type: "system",
+        title: "Task Deleted",
+        message: `${deleterName} deleted your task "${taskTitle}". Any unspent budget has been refunded to your wallet.`,
+        data: { task_id: taskId, deleted_by: session.user.id },
+      } as never);
+    }
+
     return { success: true, message: "Task deleted" };
   } catch {
     return { success: false, error: "Failed to delete task" };
@@ -386,7 +504,29 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
     await deductBudgetFromWallet(db, session.user.id, budget, taskId);
 
     if (isAdmin) {
-      await createAssignments(db, taskId, t as unknown as Parameters<typeof createAssignments>[2]);
+      await createAssignments(
+        db,
+        taskId,
+        t as unknown as Parameters<typeof createAssignments>[2],
+        String(t.title || "task"),
+        session.user.id
+      );
+    } else {
+      // Notify all admins that a user-published task needs review
+      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+      const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
+      if (adminIds.length > 0) {
+        const creatorName = session.user.name || "A user";
+        const notifs = adminIds.map((uid) => ({
+          user_id: uid,
+          type: "system",
+          title: "New Task — Review Needed",
+          message: `${creatorName} published a task "${String(t.title || "task")}". Please review.`,
+          link: `/tasks/${taskId}`,
+          data: { task_id: taskId, created_by: session.user.id },
+        }));
+        await db.from("notifications").insert(notifs as never[]);
+      }
     }
 
     return { success: true, message: isAdmin ? "Task published" : "Task submitted for approval" };

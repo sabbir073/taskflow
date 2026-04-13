@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
+import { useQuery } from "@tanstack/react-query";
 import { Btn } from "@/components/ui";
 import { Menu, Bell, Sun, Moon, User, Settings, LogOut, Coins, ChevronDown } from "lucide-react";
 import { getUnreadCount } from "@/lib/actions/notifications";
@@ -20,15 +21,23 @@ export function Header({ user }: { user: SessionUser }) {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [balance, setBalance] = useState<number | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    getMyBalance().then(setBalance);
-    getUnreadCount().then(setUnreadCount);
-  }, [pathname]);
+  // Use TanStack Query for real-time updates via cache invalidation
+  const { data: balance } = useQuery({
+    queryKey: ["my-balance"],
+    queryFn: getMyBalance,
+    refetchInterval: 10000, // refetch every 10s as fallback
+    refetchOnWindowFocus: true,
+  });
+
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ["unread-count"],
+    queryFn: getUnreadCount,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
 
   // Close menu on outside click
   useEffect(() => {
@@ -62,7 +71,7 @@ export function Header({ user }: { user: SessionUser }) {
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-warning/10 border border-warning/20">
             <Coins className="w-4 h-4 text-warning" />
             <span className="text-sm font-semibold text-warning">
-              {balance !== null ? balance.toFixed(2) : "..."}
+              {balance !== undefined ? balance.toFixed(2) : "..."}
             </span>
           </div>
 
@@ -115,7 +124,7 @@ export function Header({ user }: { user: SessionUser }) {
                       {ROLE_LABELS[user.role as UserRole]}
                     </span>
                     <span className="px-2 py-0.5 rounded-md bg-warning/10 text-warning text-xs font-medium sm:hidden">
-                      {balance !== null ? `${balance.toFixed(2)} pts` : ""}
+                      {balance !== undefined ? `${balance.toFixed(2)} pts` : ""}
                     </span>
                   </div>
                 </div>

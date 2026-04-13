@@ -325,7 +325,20 @@ export async function assignPoints(
       reference_id: session.user.id,
     } as never);
 
-    return { success: true, message: `${amount > 0 ? "+" : ""}${amount.toFixed(2)} points ${amount > 0 ? "assigned to" : "deducted from"} user` };
+    // Notify the user
+    const isAdd = amount > 0;
+    const absAmount = Math.abs(amount);
+    await db.from("notifications").insert({
+      user_id: userId,
+      type: "points_earned",
+      title: isAdd ? "Points Assigned" : "Points Deducted",
+      message: isAdd
+        ? `You received ${absAmount.toFixed(2)} points from admin${reason ? `: ${reason}` : ""}`
+        : `${absAmount.toFixed(2)} points deducted by admin${reason ? `: ${reason}` : ""}`,
+      data: { amount, reason, by_admin: session.user.id },
+    } as never);
+
+    return { success: true, message: `${isAdd ? "+" : "-"}${absAmount.toFixed(2)} points ${isAdd ? "assigned to" : "deducted from"} user` };
   } catch {
     return { success: false, error: "Failed to assign points" };
   }
