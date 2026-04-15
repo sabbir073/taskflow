@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { slugify } from "@/lib/utils";
+import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 type DB = ReturnType<typeof getServerClient>;
@@ -90,6 +91,12 @@ export async function createGroup(formData: z.infer<typeof groupSchema>): Promis
       const { data: profile } = await db.from("profiles").select("status").eq("user_id", session.user.id).single();
       if (profile && (profile as Record<string, unknown>).status === "suspended")
         return { success: false, error: "Your account is suspended" };
+
+      const subErr = await checkActiveSubscription(db, session.user.id);
+      if (subErr) return { success: false, error: subErr };
+
+      const quotaErr = await checkQuota(db, session.user.id, session.user.role, "group");
+      if (quotaErr) return { success: false, error: quotaErr };
     }
 
     const slug = slugify(validated.name) + "-" + Date.now().toString(36);
@@ -256,6 +263,11 @@ export async function updateGroup(
 
     if (group.leader_id !== session.user.id && !admin) {
       return { success: false, error: "Only the group leader or admin can edit" };
+    }
+
+    if (!admin) {
+      const subErr = await checkActiveSubscription(db, session.user.id);
+      if (subErr) return { success: false, error: subErr };
     }
 
     const update: Record<string, unknown> = { ...formData, updated_at: new Date().toISOString() };
@@ -781,7 +793,7 @@ export async function notifyAssignmentToSubmit(assignmentId: number): Promise<Ap
 
     const { data: assignment } = await db
       .from("task_assignments")
-      .select("id, user_id, status, task_id, tasks!inner(title, target_type, target_group_id)")
+      .select("id, user_id, status, task_id, tasks!inner(title, target_type, target_group_id, created_by)")
       .eq("id", assignmentId)
       .single();
     if (!assignment) return { success: false, error: "Assignment not found" };
@@ -789,12 +801,15 @@ export async function notifyAssignmentToSubmit(assignmentId: number): Promise<Ap
     const task = a.tasks as Record<string, unknown> | undefined;
     if (!task) return { success: false, error: "Task not found" };
 
-    // Only admin or group leader (of the task's target group) can nudge
-    const groupId = task.target_group_id as number | null;
+    // Admins, the task creator, and group leaders (for group tasks) can nudge
     let allowed = isAdmin(session.user.role);
-    if (!allowed && groupId) {
-      const { data: group } = await db.from("groups").select("leader_id").eq("id", groupId).single();
-      if (group && (group as Record<string, unknown>).leader_id === session.user.id) allowed = true;
+    if (!allowed && task.created_by === session.user.id) allowed = true;
+    if (!allowed) {
+      const groupId = task.target_group_id as number | null;
+      if (groupId) {
+        const { data: group } = await db.from("groups").select("leader_id").eq("id", groupId).single();
+        if (group && (group as Record<string, unknown>).leader_id === session.user.id) allowed = true;
+      }
     }
     if (!allowed) return { success: false, error: "Unauthorized" };
 

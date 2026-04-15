@@ -2,6 +2,7 @@
 
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { checkActiveSubscription } from "@/lib/subscription-check";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 // Helper: check if user is suspended
@@ -47,22 +48,7 @@ async function cancelRemainingAssignments(db: ReturnType<typeof getServerClient>
     .in("status", ["pending", "in_progress"]);
 }
 
-// Helper: check subscription if required
-async function checkSubscription(db: ReturnType<typeof getServerClient>, userId: string): Promise<string | null> {
-  const { data: setting } = await db.from("settings").select("value").eq("key", "require_subscription").single();
-  const required = setting && ((setting as Record<string, unknown>).value === true || (setting as Record<string, unknown>).value === "true");
-  if (!required) return null;
-
-  const { data: sub } = await db
-    .from("user_subscriptions")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .limit(1);
-
-  if (!sub || (sub as unknown[]).length === 0) return "An active subscription is required to perform this action";
-  return null;
-}
+// Subscription gate uses the shared helper — respects expires_at + setting
 
 // ===== User: Get my task assignments =====
 export async function getMyTasks(params: PaginationParams & {
@@ -108,7 +94,7 @@ export async function acceptTask(assignmentId: number): Promise<ApiResponse> {
     if (suspended) return { success: false, error: suspended };
 
     // Check subscription
-    const subError = await checkSubscription(db, session.user.id);
+    const subError = await checkActiveSubscription(db, session.user.id);
     if (subError) return { success: false, error: subError };
 
     const { data: assignment } = await db.from("task_assignments").select("id, user_id, status, task_id").eq("id", assignmentId).single();
@@ -164,6 +150,9 @@ export async function submitProof(
 
     const suspended = await checkSuspended(db, session.user.id);
     if (suspended) return { success: false, error: suspended };
+
+    const subErr = await checkActiveSubscription(db, session.user.id);
+    if (subErr) return { success: false, error: subErr };
 
     const { data: assignment } = await db.from("task_assignments").select("id, user_id, status, task_id").eq("id", assignmentId).single();
     if (!assignment) return { success: false, error: "Assignment not found" };

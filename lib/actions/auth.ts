@@ -27,6 +27,11 @@ export async function registerUser(formData: {
   password: string;
   confirmPassword: string;
   planId?: number;
+  payment?: {
+    payment_method_id: number;
+    transaction_id: string;
+    notes?: string;
+  };
 }): Promise<ApiResponse> {
   try {
     const validated = registerSchema.parse(formData);
@@ -42,6 +47,13 @@ export async function registerUser(formData: {
     if (existing) {
       return { success: false, error: "An account with this email already exists" };
     }
+
+    // Is subscription required for signup?
+    const { data: subSetting } = await db.from("settings").select("value").eq("key", "require_subscription").single();
+    const subRequired = subSetting && (
+      (subSetting as Record<string, unknown>).value === true ||
+      (subSetting as Record<string, unknown>).value === "true"
+    );
 
     const passwordHash = await hash(validated.password, 12);
 
@@ -71,24 +83,123 @@ export async function registerUser(formData: {
       (approvalSetting as Record<string, unknown>).value === "true"
     );
 
-    // Subscribe to selected plan
-    if (formData.planId) {
-      const { data: plan } = await db.from("plans").select("period").eq("id", formData.planId).single();
-      let expiresAt: string | null = null;
-      if (plan) {
-        const period = (plan as Record<string, unknown>).period as string;
+    // --- Subscription handling ---
+    // If subscriptions are required: honor the plan picked during signup.
+    //   - Paid plan with payment info → create PENDING subscription + pending payment row (admin will review)
+    //   - Free plan → create active subscription immediately
+    // If subscriptions are NOT required: auto-subscribe to the MOST expensive plan (max).
+    if (subRequired && formData.planId) {
+      const { data: plan } = await db.from("plans").select("price, currency, period").eq("id", formData.planId).single();
+      const planRec = plan as Record<string, unknown> | null;
+      const price = planRec ? Number(planRec.price || 0) : 0;
+      const planCurrency = planRec ? String(planRec.currency || "usd") : "usd";
+      const period = planRec ? String(planRec.period || "monthly") : "monthly";
+
+      if (price > 0) {
+        if (!formData.payment) {
+          return { success: false, error: "Payment details are required for paid plans" };
+        }
+
+        // Convert the plan's price into the selected payment method's currency
+        const { data: methodRow } = await db
+          .from("payment_methods")
+          .select("currency")
+          .eq("id", formData.payment.payment_method_id)
+          .single();
+        const methodCurrency = methodRow ? String((methodRow as Record<string, unknown>).currency || "usd") : "usd";
+
+        const { data: rateSetting } = await db.from("settings").select("value").eq("key", "usd_to_bdt_rate").single();
+        let rateRaw: unknown = rateSetting ? (rateSetting as Record<string, unknown>).value : 0;
+        if (typeof rateRaw === "string") { try { rateRaw = JSON.parse(rateRaw); } catch { rateRaw = Number(rateRaw); } }
+        const rate = Number(rateRaw || 0);
+
+        let convertedAmount = price;
+        let convertedCurrency = planCurrency;
+        if (planCurrency !== methodCurrency && rate > 0) {
+          if (planCurrency === "usd" && methodCurrency === "bdt") { convertedAmount = price * rate; convertedCurrency = "bdt"; }
+          else if (planCurrency === "bdt" && methodCurrency === "usd") { convertedAmount = price / rate; convertedCurrency = "usd"; }
+        }
+
+        // Record the pending payment — admin reviews from /payments
+        await db.from("payments").insert({
+          user_id: userId,
+          purpose: "signup",
+          plan_id: formData.planId,
+          amount: Number(convertedAmount.toFixed(2)),
+          currency: convertedCurrency,
+          payment_method_id: formData.payment.payment_method_id,
+          transaction_id: formData.payment.transaction_id,
+          notes: formData.payment.notes || null,
+          status: "pending",
+        } as never);
+
+        // Hold subscription inactive until admin approves the payment
+        await db.from("user_subscriptions").insert({
+          user_id: userId, plan_id: formData.planId,
+          starts_at: new Date().toISOString(), expires_at: null, status: "pending",
+        } as never);
+
+        // Paid signups always need admin approval regardless of the toggle
+        await db.from("profiles").update({ is_approved: false } as never).eq("user_id", userId);
+      } else {
+        // Free plan — active immediately
+        let expiresAt: string | null = null;
         if (period === "monthly") { const d = new Date(); d.setMonth(d.getMonth() + 1); expiresAt = d.toISOString(); }
         else if (period === "yearly") { const d = new Date(); d.setFullYear(d.getFullYear() + 1); expiresAt = d.toISOString(); }
+        await db.from("user_subscriptions").insert({
+          user_id: userId, plan_id: formData.planId,
+          starts_at: new Date().toISOString(), expires_at: expiresAt, status: "active",
+        } as never);
       }
-      await db.from("user_subscriptions").insert({
-        user_id: userId, plan_id: formData.planId,
-        starts_at: new Date().toISOString(), expires_at: expiresAt, status: "active",
-      } as never);
+    } else if (!subRequired) {
+      // Auto-assign the top plan (highest price) so the user has "max" access
+      const { data: topPlan } = await db
+        .from("plans")
+        .select("id, period")
+        .eq("is_active", true)
+        .order("price", { ascending: false })
+        .limit(1);
+      const topId = topPlan && (topPlan as Record<string, unknown>[])[0]?.id as number | undefined;
+      if (topId) {
+        const period = String((topPlan as Record<string, unknown>[])[0]?.period || "forever");
+        let expiresAt: string | null = null;
+        if (period === "monthly") { const d = new Date(); d.setMonth(d.getMonth() + 1); expiresAt = d.toISOString(); }
+        else if (period === "yearly") { const d = new Date(); d.setFullYear(d.getFullYear() + 1); expiresAt = d.toISOString(); }
+        await db.from("user_subscriptions").insert({
+          user_id: userId, plan_id: topId,
+          starts_at: new Date().toISOString(), expires_at: expiresAt, status: "active",
+        } as never);
+      }
     }
 
-    if (requireApproval) {
+    // Notify admins on any new signup that needs attention
+    if (requireApproval || (subRequired && formData.payment)) {
+      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+      const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
+      if (adminIds.length > 0) {
+        const reason = subRequired && formData.payment
+          ? `${validated.name} signed up and submitted a payment. Please review.`
+          : `${validated.name} signed up and is pending approval.`;
+        const notifs = adminIds.map((uid) => ({
+          user_id: uid,
+          type: "system",
+          title: "New Signup — Review Needed",
+          message: reason,
+          link: subRequired && formData.payment ? "/payments" : "/users",
+          data: { user_id: userId },
+        }));
+        await db.from("notifications").insert(notifs as never[]);
+      }
+    }
+
+    if (requireApproval || (subRequired && formData.payment)) {
       await db.from("profiles").update({ is_approved: false } as never).eq("user_id", userId);
-      return { success: true, message: "Account created! Your account is pending admin approval." };
+      return {
+        success: true,
+        message: subRequired && formData.payment
+          ? "Account created! Your payment is pending admin review."
+          : "Account created! Your account is pending admin approval.",
+      };
     }
 
     const token = crypto.randomUUID();

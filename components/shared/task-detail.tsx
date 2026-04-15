@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Textarea, Btn, Badge } from "@/components/ui";
-import { CheckCircle, XCircle, Clock, Upload, ExternalLink, Image as ImageIcon, Loader2, Link2 } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Upload, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell } from "lucide-react";
 import { useAcceptTask, useSubmitProof, useReviewAssignment } from "@/hooks/use-tasks";
+import { useNotifyAssignmentToSubmit } from "@/hooks/use-groups";
 import { getMyAssignmentForTask } from "@/lib/actions/assignments";
 import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { UserProfileModal } from "./user-profile-modal";
 
 interface Props {
   data: { task: Record<string, unknown>; assignments: Record<string, unknown>[] };
@@ -21,6 +23,11 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   const platformSlug = String(platform?.slug || "");
   const platformConfig = PLATFORM_CONFIG[platformSlug as keyof typeof PLATFORM_CONFIG];
   const proofType = String(task.proof_type || taskType?.proof_type || "both");
+  const isTaskOwner = String(task.created_by || "") === String(currentUserId);
+  const canViewSubmissions = isAdmin || isTaskOwner;
+
+  // Admin can click member names to open a profile modal
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
   const myAssignment = assignments.find((a) => {
     // Check both user_id directly and nested users.id from join
@@ -97,17 +104,29 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
         {/* Show proof section for anyone who has an assignment */}
         <MyProofSection taskId={task.id as number} proofType={proofType} />
 
-        {isAdmin && (
+        {canViewSubmissions && (
           <Card>
             <CardHeader><CardTitle>Submissions ({assignments.length})</CardTitle></CardHeader>
             <CardContent>
               {assignments.length === 0 ? <p className="text-sm text-muted-foreground py-6 text-center">No submissions yet</p> : (
-                <div className="space-y-3">{assignments.map((a) => <AssignmentRow key={a.id as number} assignment={a} />)}</div>
+                <div className="space-y-3">
+                  {assignments.map((a) => (
+                    <AssignmentRow
+                      key={a.id as number}
+                      assignment={a}
+                      isAdmin={isAdmin}
+                      onViewProfile={isAdmin ? setProfileUserId : undefined}
+                    />
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
         )}
       </div>
+
+      {/* Admin profile modal */}
+      {isAdmin && <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />}
 
       <div className="space-y-4">
         <Card>
@@ -315,24 +334,63 @@ function ProofSection({ assignment, proofType, onRefresh }: { assignment: Record
   );
 }
 
-function AssignmentRow({ assignment }: { assignment: Record<string, unknown> }) {
+function AssignmentRow({
+  assignment,
+  isAdmin,
+  onViewProfile,
+}: {
+  assignment: Record<string, unknown>;
+  isAdmin: boolean;
+  onViewProfile?: (userId: string) => void;
+}) {
   const review = useReviewAssignment();
+  const notifySubmit = useNotifyAssignmentToSubmit();
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
   const user = assignment.users as Record<string, unknown> | undefined;
+  const userId = String(user?.id || assignment.user_id || "");
   const status = String(assignment.status);
   const name = String(user?.name || "Unknown");
+  const canNotify = ["pending", "in_progress", "rejected"].includes(status);
+
+  const nameEl = onViewProfile ? (
+    <button
+      type="button"
+      onClick={() => onViewProfile(userId)}
+      className="text-sm font-semibold text-left hover:text-primary transition-colors"
+    >
+      {name}
+    </button>
+  ) : (
+    <p className="text-sm font-semibold">{name}</p>
+  );
 
   return (
     <div className="border border-border/50 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
-          <div><p className="text-sm font-semibold">{name}</p><p className="text-xs text-muted-foreground">{String(user?.email || "")}</p></div>
+          <div>
+            {nameEl}
+            <p className="text-xs text-muted-foreground">{String(user?.email || "")}</p>
+          </div>
         </div>
-        <Badge variant={status === "approved" ? "success" : status === "rejected" ? "error" : status === "submitted" ? "accent" : "default"}>
-          {status.replace("_", " ")}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={status === "approved" ? "success" : status === "rejected" ? "error" : status === "submitted" ? "accent" : "default"}>
+            {status.replace("_", " ")}
+          </Badge>
+          {canNotify && (
+            <Btn
+              variant="ghost"
+              size="sm"
+              title="Send reminder to submit"
+              disabled={notifySubmit.isPending}
+              onClick={() => notifySubmit.mutate(assignment.id as number)}
+            >
+              <Bell className="w-3.5 h-3.5" /> Notify
+            </Btn>
+          )}
+        </div>
       </div>
 
       {(((assignment.proof_urls as string[]) || []).length > 0 || ((assignment.proof_screenshots as string[]) || []).length > 0) && (
@@ -348,7 +406,7 @@ function AssignmentRow({ assignment }: { assignment: Record<string, unknown> }) 
 
       {!!assignment.proof_notes && <p className="text-xs text-muted-foreground">{String(assignment.proof_notes)}</p>}
 
-      {status === "submitted" && (
+      {status === "submitted" && isAdmin && (
         <div className="flex gap-2 pt-2 border-t border-border/50">
           <Btn size="sm" onClick={() => review.mutate({ assignmentId: assignment.id as number, action: "approve" })} disabled={review.isPending}><CheckCircle className="w-3 h-3 mr-1" /> Approve</Btn>
           {!showReject ? (

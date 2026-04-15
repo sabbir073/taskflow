@@ -185,10 +185,39 @@ export async function getUserById(userId: string) {
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId);
 
+  // Current active subscription (if any)
+  const { data: subRow } = await db
+    .from("user_subscriptions")
+    .select("period_type, expires_at, status, starts_at, plans!inner(name, currency, max_tasks, max_groups, included_credits)")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sub = (subRow as Record<string, unknown> | null) || null;
+  let subscription: Record<string, unknown> | null = null;
+  if (sub) {
+    const plan = sub.plans as Record<string, unknown> | undefined;
+    const expiresAt = sub.expires_at ? String(sub.expires_at) : null;
+    const isExpired = expiresAt ? new Date(expiresAt).getTime() <= Date.now() : false;
+    subscription = {
+      planName: plan ? String(plan.name || "") : null,
+      periodType: (sub.period_type as string | null) || null,
+      expiresAt,
+      startsAt: sub.starts_at ? String(sub.starts_at) : null,
+      isExpired,
+      maxTasks: plan ? (plan.max_tasks as number | null) : null,
+      maxGroups: plan ? (plan.max_groups as number | null) : null,
+      includedCredits: plan ? Number(plan.included_credits || 0) : 0,
+      currency: plan ? String(plan.currency || "usd") : "usd",
+    };
+  }
+
   return {
     user: user as Record<string, unknown>,
     profile: profile as Record<string, unknown> | null,
     stats: { taskCount: taskCount || 0, groupCount: groupCount || 0 },
+    subscription,
   };
 }
 

@@ -4,12 +4,22 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { User, Mail, Phone, Trophy, Target, Flame, Calendar, Lock, Loader2, Eye, EyeOff, Camera } from "lucide-react";
+import Link from "next/link";
+import { User, Mail, Phone, Trophy, Target, Flame, Calendar, Lock, Loader2, Eye, EyeOff, Camera, Sparkles, CheckCircle, AlertTriangle, Clock, ListTodo, Users as UsersIcon } from "lucide-react";
 import { updateProfile, changePassword } from "@/lib/actions/users";
+import { useMyQuotaUsage } from "@/hooks/use-plans";
 import { toast } from "sonner";
 import { formatDate, getInitials } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants/roles";
+import { Btn, Badge } from "@/components/ui";
 import type { SessionUser, UserRole } from "@/types";
+
+const PERIOD_LABEL: Record<string, string> = {
+  monthly: "Monthly",
+  half_yearly: "6 Months",
+  yearly: "Yearly",
+  forever: "Forever",
+};
 
 const profileSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -54,6 +64,7 @@ export function ProfileView({ sessionUser, profileData }: Props) {
   const [showNewPw, setShowNewPw] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(sessionUser.image || "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const { data: quota } = useMyQuotaUsage();
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -128,7 +139,8 @@ export function ProfileView({ sessionUser, profileData }: Props) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-5xl">
-      {/* Profile overview card */}
+      {/* Profile overview card + plan */}
+      <div className="space-y-6">
       <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden">
         {/* Gradient header */}
         <div className="h-24 bg-gradient-to-r from-primary to-accent relative">
@@ -169,6 +181,70 @@ export function ProfileView({ sessionUser, profileData }: Props) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Current plan card */}
+      {(() => {
+        if (!quota) return null;
+        const hasPlan = !!quota.planName;
+        const daysLeft = quota.expiresAt ? Math.ceil((new Date(quota.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+        const expiredOrSoon = quota.isExpired || (daysLeft != null && daysLeft <= 7);
+
+        return (
+          <div className={`bg-card rounded-2xl border shadow-sm overflow-hidden ${quota.isExpired ? "border-error/40" : daysLeft != null && daysLeft <= 7 ? "border-warning/40" : "border-border/50"}`}>
+            <div className={`p-4 bg-gradient-to-br ${quota.isExpired ? "from-error/15 via-error/5 to-transparent" : daysLeft != null && daysLeft <= 7 ? "from-warning/15 via-warning/5 to-transparent" : "from-primary/15 via-accent/5 to-transparent"} border-b border-border/40`}>
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Current Plan</p>
+              </div>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-lg font-bold">{hasPlan ? quota.planName : "No Plan"}</h3>
+                {hasPlan && quota.periodType && <Badge variant="primary">{PERIOD_LABEL[quota.periodType] || quota.periodType}</Badge>}
+                {quota.isExpired && <Badge variant="error"><AlertTriangle className="w-3 h-3 mr-1" /> Expired</Badge>}
+                {!quota.isExpired && daysLeft != null && daysLeft <= 7 && <Badge variant="warning"><Clock className="w-3 h-3 mr-1" /> {daysLeft}d left</Badge>}
+                {!quota.isExpired && daysLeft != null && daysLeft > 7 && <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" /> Active</Badge>}
+              </div>
+              {quota.expiresAt && (
+                <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  {quota.isExpired ? "Expired on" : "Renews on"} {formatDate(quota.expiresAt)}
+                </p>
+              )}
+            </div>
+
+            {hasPlan && (
+              <div className="p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="p-2.5 rounded-lg bg-muted/40">
+                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                      <ListTodo className="w-3 h-3" /> Tasks
+                    </div>
+                    <p className="font-semibold text-sm">
+                      {quota.tasksUsed} / {quota.tasksLimit == null ? "∞" : quota.tasksLimit}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-muted/40">
+                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                      <UsersIcon className="w-3 h-3" /> Groups
+                    </div>
+                    <p className="font-semibold text-sm">
+                      {quota.groupsUsed} / {quota.groupsLimit == null ? "∞" : quota.groupsLimit}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 pt-0">
+              <Link href="/plans">
+                <Btn variant={expiredOrSoon ? "primary" : "outline"} className="w-full" size="sm">
+                  {quota.isExpired ? "Renew Plan" : hasPlan ? "Manage Plan" : "Choose a Plan"}
+                </Btn>
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
       </div>
 
       {/* Edit forms */}

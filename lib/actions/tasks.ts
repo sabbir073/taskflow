@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 const taskSchema = z.object({
@@ -45,6 +46,13 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
       const { data: profile } = await db.from("profiles").select("status").eq("user_id", session.user.id).single();
       if (profile && (profile as Record<string, unknown>).status === "suspended")
         return { success: false, error: "Your account is suspended" };
+
+      // Subscription + quota gate (non-admin only)
+      const subErr = await checkActiveSubscription(db, session.user.id);
+      if (subErr) return { success: false, error: subErr };
+
+      const quotaErr = await checkQuota(db, session.user.id, session.user.role, "task");
+      if (quotaErr) return { success: false, error: quotaErr };
     }
 
     // Individual tasks: full budget goes to the single assigned user
@@ -495,6 +503,12 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
+
+    const isAdminRole = ["super_admin", "admin"].includes(session.user.role);
+    if (!isAdminRole) {
+      const subErr = await checkActiveSubscription(db, session.user.id);
+      if (subErr) return { success: false, error: subErr };
+    }
 
     const { data: task } = await db.from("tasks").select("*").eq("id", taskId).single();
     if (!task) return { success: false, error: "Task not found" };

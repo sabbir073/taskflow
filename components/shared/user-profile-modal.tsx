@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge, Btn } from "@/components/ui";
-import { Trophy, Target, Flame, Calendar, X, Mail } from "lucide-react";
+import { Trophy, Target, Flame, Calendar, X, Mail, Sparkles, Clock, AlertTriangle, CheckCircle } from "lucide-react";
 import { getUserById } from "@/lib/actions/users";
 import { ROLE_LABELS } from "@/lib/constants/roles";
 import { getInitials, formatDate } from "@/lib/utils";
@@ -12,6 +12,13 @@ const STATUS_VARIANT: Record<string, "success" | "warning" | "error"> = {
   active: "success",
   suspended: "warning",
   banned: "error",
+};
+
+const PERIOD_LABEL: Record<string, string> = {
+  monthly: "Monthly",
+  half_yearly: "6 Months",
+  yearly: "Yearly",
+  forever: "Forever",
 };
 
 interface Props {
@@ -108,6 +115,47 @@ export function UserProfileModal({ userId, onClose }: Props) {
                     </div>
                   ))}
                 </div>
+
+                {/* Subscription */}
+                {(() => {
+                  const sub = data.subscription as Record<string, unknown> | null | undefined;
+                  if (!sub) {
+                    return (
+                      <div className="p-3 rounded-xl border border-dashed border-border/60 bg-muted/20 flex items-center gap-2 mb-4">
+                        <Sparkles className="w-4 h-4 text-muted-foreground" />
+                        <p className="text-xs text-muted-foreground">No active subscription</p>
+                      </div>
+                    );
+                  }
+                  const planName = String(sub.planName || "—");
+                  const periodType = String(sub.periodType || "");
+                  const expiresAt = sub.expiresAt as string | null;
+                  const isExpired = sub.isExpired === true;
+                  const daysLeft = expiresAt ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+                  return (
+                    <div className={`rounded-xl border p-3 mb-4 ${isExpired ? "border-error/40 bg-error/[0.04]" : daysLeft != null && daysLeft <= 7 ? "border-warning/40 bg-warning/[0.04]" : "border-primary/30 bg-primary/[0.03]"}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                          <p className="text-sm font-semibold truncate">{planName}</p>
+                          {periodType && <Badge variant="primary">{PERIOD_LABEL[periodType] || periodType}</Badge>}
+                        </div>
+                        {isExpired ? (
+                          <Badge variant="error"><AlertTriangle className="w-3 h-3 mr-1" /> Expired</Badge>
+                        ) : daysLeft != null && daysLeft <= 7 ? (
+                          <Badge variant="warning"><Clock className="w-3 h-3 mr-1" /> {daysLeft}d left</Badge>
+                        ) : (
+                          <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" /> Active</Badge>
+                        )}
+                      </div>
+                      {expiresAt && (
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
+                          {isExpired ? "Expired on" : "Renews on"} <span className="font-medium text-foreground">{formatDate(expiresAt)}</span>
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="space-y-2 text-sm">
                   {vPhone && (

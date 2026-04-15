@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth-helpers";
 import { getSettings } from "@/lib/actions/settings";
 import { getServerClient } from "@/lib/db/supabase";
+import { dispatchSubscriptionNotifications } from "@/lib/subscription-check";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { SettingsProvider } from "@/components/providers/settings-provider";
@@ -26,6 +27,9 @@ export default async function DashboardLayout({
   if (currentStatus === "suspended") {
     redirect("/suspended");
   }
+
+  // Dispatch lifecycle notifications (expiring soon / expired) — idempotent
+  await dispatchSubscriptionNotifications(db, user.id);
 
   const settings = await getSettings();
 

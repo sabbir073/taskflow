@@ -10,6 +10,8 @@ interface AppSettings {
   accent_color: string;
   dark_mode_default: boolean;
   enable_notice_board: boolean;
+  require_subscription: boolean;
+  require_user_approval: boolean;
   [key: string]: unknown;
 }
 
@@ -20,6 +22,8 @@ const defaultSettings: AppSettings = {
   accent_color: "#EC4899",
   dark_mode_default: false,
   enable_notice_board: true,
+  require_subscription: false,
+  require_user_approval: false,
 };
 
 const SettingsContext = createContext<AppSettings>(defaultSettings);

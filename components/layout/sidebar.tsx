@@ -9,7 +9,7 @@ import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard, Megaphone, ShieldAlert,
+  CreditCard, Megaphone, ShieldAlert, Wallet,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
@@ -32,6 +32,7 @@ const navItems: NavItem[] = [
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },
+  { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" },
@@ -43,9 +44,12 @@ export function Sidebar({ user }: { user: SessionUser }) {
   const [collapsed, setCollapsed] = useState(false);
 
   const appSettings = useAppSettings();
-  const visibleItems = navItems.filter(
-    (item) => !item.permission || hasPermission(user.role as UserRole, item.permission)
-  );
+  const subscriptionRequired = appSettings.require_subscription === true;
+  const visibleItems = navItems.filter((item) => {
+    if (item.href === "/plans" && !subscriptionRequired) return false;
+    if (item.permission && !hasPermission(user.role as UserRole, item.permission)) return false;
+    return true;
+  });
 
   return (
     <aside

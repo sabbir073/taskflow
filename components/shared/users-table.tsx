@@ -255,50 +255,11 @@ export function UsersTable() {
 
       {/* Assign Plan modal */}
       {!!planTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPlanTarget(null)}>
-          <div className="bg-card rounded-2xl p-6 w-full max-w-md shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-primary" /> Assign Subscription Plan
-            </h3>
-            <div className="space-y-3">
-              {!plans || plans.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No plans available. Create plans first.</p>
-              ) : (
-                plans.map((plan) => {
-                  const id = plan.id as number;
-                  const name = String(plan.name || "");
-                  const price = Number(plan.price || 0);
-                  const period = String(plan.period || "");
-                  const features = (plan.features || []) as string[];
-
-                  return (
-                    <div key={id} className="flex items-center justify-between p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-colors">
-                      <div>
-                        <p className="font-semibold">{name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {price === 0 ? "Free" : `$${price.toFixed(2)}`}{price > 0 ? `/${period}` : ""}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {features.slice(0, 2).map((f) => typeof f === "string" ? f : String(f)).join(" • ")}
-                        </p>
-                      </div>
-                      <Btn size="sm" isLoading={assignSub.isPending}
-                        onClick={() => {
-                          assignSub.mutate({ userId: planTarget, planId: id });
-                          setPlanTarget(null);
-                        }}>
-                        Assign
-                      </Btn>
-                    </div>
-                  );
-                })
-              )}
-              <div className="flex justify-end pt-2">
-                <Btn variant="outline" onClick={() => setPlanTarget(null)}>Cancel</Btn>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AssignPlanModal
+          userId={planTarget}
+          plans={plans || []}
+          onClose={() => setPlanTarget(null)}
+        />
       )}
 
       {/* User Profile Modal */}
@@ -402,6 +363,160 @@ export function UsersTable() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Assign Plan modal — admin picks a plan + billing period for a user
+// ============================================================================
+type BillingPeriod = "monthly" | "half_yearly" | "yearly";
+const PERIOD_LABEL: Record<BillingPeriod, string> = {
+  monthly: "Monthly",
+  half_yearly: "6 Months",
+  yearly: "Yearly",
+};
+
+function currencySymbol(code: string): string {
+  const c = (code || "usd").toLowerCase();
+  if (c === "bdt") return "৳";
+  if (c === "usd") return "$";
+  return code.toUpperCase() + " ";
+}
+
+function AssignPlanModal({
+  userId,
+  plans,
+  onClose,
+}: {
+  userId: string;
+  plans: Record<string, unknown>[];
+  onClose: () => void;
+}) {
+  const assignSub = useAdminAssignSubscription();
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<BillingPeriod>("monthly");
+
+  const selected = plans.find((p) => (p.id as number) === selectedPlanId);
+
+  // Available tiers for the selected plan
+  const tiers: { key: BillingPeriod; price: number }[] = [];
+  if (selected) {
+    if (selected.price_monthly != null) tiers.push({ key: "monthly", price: Number(selected.price_monthly) });
+    if (selected.price_half_yearly != null) tiers.push({ key: "half_yearly", price: Number(selected.price_half_yearly) });
+    if (selected.price_yearly != null) tiers.push({ key: "yearly", price: Number(selected.price_yearly) });
+    if (tiers.length === 0) {
+      tiers.push({ key: (String(selected.period || "monthly") as BillingPeriod), price: Number(selected.price || 0) });
+    }
+  }
+  const currency = selected ? String(selected.currency || "usd") : "usd";
+  const activeTier = tiers.find((t) => t.key === selectedPeriod) || tiers[0];
+
+  function handleAssign() {
+    if (!selectedPlanId) return;
+    assignSub.mutate(
+      { userId, planId: selectedPlanId, period: selectedPeriod },
+      { onSuccess: () => onClose() }
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border my-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 border-b border-border/60 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold flex items-center gap-2"><CreditCard className="w-5 h-5 text-primary" /> Assign Subscription Plan</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Pick a plan + billing period. Included credits are added to the user&apos;s wallet instantly.</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          {plans.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No plans available. Create one from Payments → Plans.</p>
+          ) : (
+            <>
+              {/* Plan list */}
+              <div className="space-y-2">
+                {plans.map((plan) => {
+                  const id = plan.id as number;
+                  const name = String(plan.name || "");
+                  const description = String(plan.description || "");
+                  const maxTasks = plan.max_tasks as number | null | undefined;
+                  const maxGroups = plan.max_groups as number | null | undefined;
+                  const credits = Number(plan.included_credits || 0);
+                  const isSelected = selectedPlanId === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setSelectedPlanId(id)}
+                      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+                        isSelected ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/30 hover:bg-muted/20"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold">{name}</p>
+                        {isSelected && <Badge variant="primary">Selected</Badge>}
+                      </div>
+                      {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+                      <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
+                        <span><strong className="text-foreground">{maxTasks ?? "∞"}</strong> tasks</span>
+                        <span><strong className="text-foreground">{maxGroups ?? "∞"}</strong> groups</span>
+                        <span><strong className="text-foreground">{credits.toFixed(0)}</strong> credits</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Period picker (only once a plan is selected) */}
+              {selected && tiers.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-border/40">
+                  <label className="text-sm font-medium">Billing Period</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {tiers.map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setSelectedPeriod(t.key)}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          (selectedPeriod === t.key || (tiers.length === 1))
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/30 hover:bg-muted/20"
+                        }`}
+                      >
+                        <p className="text-[11px] text-muted-foreground">{PERIOD_LABEL[t.key]}</p>
+                        <p className="text-sm font-bold mt-0.5">{currencySymbol(currency)}{t.price.toFixed(0)}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {activeTier && (
+                    <div className="p-3 rounded-xl bg-muted/30 text-xs text-muted-foreground">
+                      Total: <span className="font-semibold text-foreground">{currencySymbol(currency)}{activeTier.price.toFixed(2)}</span>
+                      {" • "}Period: <span className="font-semibold text-foreground">{PERIOD_LABEL[activeTier.key]}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="p-5 border-t border-border/60 flex gap-3 justify-end">
+          <Btn variant="outline" type="button" onClick={onClose}>Cancel</Btn>
+          <Btn
+            type="button"
+            disabled={!selectedPlanId || assignSub.isPending}
+            isLoading={assignSub.isPending}
+            onClick={handleAssign}
+          >
+            Assign Plan
+          </Btn>
+        </div>
+      </div>
     </div>
   );
 }

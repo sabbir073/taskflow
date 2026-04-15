@@ -3,6 +3,7 @@
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { NoticeBoard } from "@/components/shared/notice-board";
+import { SubscriptionBanner } from "@/components/shared/subscription-banner";
 import { Card, CardHeader, CardTitle, CardContent, Badge } from "@/components/ui";
 import { ListTodo, Clock, Trophy, TrendingUp, Users, CheckCircle, ArrowRight } from "lucide-react";
 import { formatRelativeTime, getInitials } from "@/lib/utils";
@@ -25,6 +26,7 @@ export function DashboardContent({ userName, isAdmin, adminStats, userStats, rec
         description={isAdmin ? "Here's an overview of your platform activity." : "Here's your task progress and achievements."}
       />
 
+      <SubscriptionBanner />
       <NoticeBoard />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

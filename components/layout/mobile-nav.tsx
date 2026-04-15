@@ -6,10 +6,11 @@ import { signOut } from "next-auth/react";
 import { Btn } from "@/components/ui";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
-  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert,
+  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
+import { useAppSettings } from "@/components/providers/settings-provider";
 import type { SessionUser } from "@/types";
 import type { UserRole } from "@/types/database";
 
@@ -22,6 +23,7 @@ const navItems = [
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" as Permission },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" as Permission },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" as Permission },
+  { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" as Permission },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" as Permission },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" as Permission },
@@ -36,10 +38,14 @@ interface MobileNavProps {
 
 export function MobileNav({ user, isOpen, onClose }: MobileNavProps) {
   const pathname = usePathname();
+  const appSettings = useAppSettings();
+  const subscriptionRequired = appSettings.require_subscription === true;
 
-  const visibleItems = navItems.filter(
-    (item) => !item.permission || hasPermission(user.role as UserRole, item.permission)
-  );
+  const visibleItems = navItems.filter((item) => {
+    if (item.href === "/plans" && !subscriptionRequired) return false;
+    if (item.permission && !hasPermission(user.role as UserRole, item.permission)) return false;
+    return true;
+  });
 
   return (
     <>
