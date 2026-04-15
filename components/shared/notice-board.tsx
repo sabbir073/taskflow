@@ -1,15 +1,40 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui";
 import { Megaphone, ChevronDown, ChevronUp } from "lucide-react";
 import { useActiveNotices } from "@/hooks/use-notices";
+import { useAppSettings } from "@/components/providers/settings-provider";
+import { getSettingsMap } from "@/lib/actions/settings";
 import { formatRelativeTime } from "@/lib/utils";
 
+// Live-polled read of the notice_board toggle so every user's view hides/shows
+// in real time when an admin flips the switch, no reload needed.
+function useNoticeBoardEnabled(fallback: boolean): boolean {
+  const { data } = useQuery({
+    queryKey: ["settings-live"],
+    queryFn: getSettingsMap,
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
+  });
+  if (!data) return fallback;
+  const val = data.enable_notice_board;
+  if (typeof val === "boolean") return val;
+  if (typeof val === "string") {
+    try { return JSON.parse(val) !== false; } catch { return fallback; }
+  }
+  return fallback;
+}
+
 export function NoticeBoard() {
+  const settings = useAppSettings();
+  const enabled = useNoticeBoardEnabled(settings.enable_notice_board !== false);
   const { data: notices, isLoading } = useActiveNotices();
   const [collapsed, setCollapsed] = useState(false);
 
+  if (!enabled) return null;
   if (isLoading || !notices || notices.length === 0) return null;
 
   return (

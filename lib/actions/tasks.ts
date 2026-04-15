@@ -79,6 +79,20 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
       resolvedUserId = (foundUser as Record<string, unknown>).id as string;
     }
 
+    // Groups must be approved + active to receive tasks
+    if (validated.target_type === "group") {
+      if (!validated.target_group_id) return { success: false, error: "Please select a group" };
+      const { data: group } = await db
+        .from("groups")
+        .select("approval_status, status")
+        .eq("id", validated.target_group_id)
+        .single();
+      if (!group) return { success: false, error: "Group not found" };
+      const g = group as Record<string, unknown>;
+      if (g.approval_status !== "approved") return { success: false, error: "This group is not approved yet" };
+      if (g.status === "suspended") return { success: false, error: "This group is suspended" };
+    }
+
     // Admin tasks are auto-approved, user tasks need approval
     const approvalStatus = isAdmin ? "approved" : "pending_approval";
 

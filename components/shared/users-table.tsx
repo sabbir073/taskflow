@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Card, CardContent, CardFooter, Input, Btn, Select, Badge } from "@/components/ui";
 import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus } from "lucide-react";
 import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints } from "@/hooks/use-users";
@@ -24,7 +25,22 @@ export function UsersTable() {
   const [pointsAmount, setPointsAmount] = useState("");
   const [pointsReason, setPointsReason] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [menuDirection, setMenuDirection] = useState<"up" | "down">("down");
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; placement: "up" | "down" } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Reposition / close on scroll or resize so a fixed-positioned menu never drifts
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = () => setOpenMenu(null);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [openMenu]);
   const [planTarget, setPlanTarget] = useState<string | null>(null);
   const [viewProfile, setViewProfile] = useState<Record<string, unknown> | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
@@ -105,39 +121,34 @@ export function UsersTable() {
                       <td className="px-5 py-3">{tasks}</td>
                       <td className="px-5 py-3 text-muted-foreground">{formatDate(joined)}</td>
                       <td className="px-5 py-3 text-right">
-                        <div className="relative inline-block">
-                        <button onClick={(e) => {
-                          if (openMenu === userId) { setOpenMenu(null); return; }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setMenuDirection(rect.bottom > window.innerHeight - 300 ? "up" : "down");
-                          setOpenMenu(userId);
-                        }} className="p-2 rounded-lg hover:bg-muted transition-colors">
+                        <button
+                          onClick={(e) => {
+                            if (openMenu === userId) { setOpenMenu(null); return; }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const MENU_WIDTH = 184;
+                            const MENU_HEIGHT = 320;
+                            const PAD = 8;
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            const spaceAbove = rect.top;
+                            const goUp = spaceBelow < MENU_HEIGHT + PAD && spaceAbove > spaceBelow;
+                            let top: number;
+                            if (goUp) {
+                              top = Math.max(PAD, rect.top - 4 - MENU_HEIGHT);
+                            } else {
+                              top = Math.min(window.innerHeight - MENU_HEIGHT - PAD, rect.bottom + 4);
+                              if (top < PAD) top = PAD;
+                            }
+                            setMenuPos({
+                              top,
+                              left: Math.max(PAD, Math.min(window.innerWidth - MENU_WIDTH - PAD, rect.right - MENU_WIDTH)),
+                              placement: goUp ? "up" : "down",
+                            });
+                            setOpenMenu(userId);
+                          }}
+                          className="p-2 rounded-lg hover:bg-muted transition-colors"
+                        >
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
-                        {openMenu === userId && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                            <div className={`absolute right-0 w-48 bg-card rounded-xl border border-border shadow-xl z-50 py-1 ${
-                              menuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"
-                            }`}>
-                              <button onClick={() => { openProfile(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Eye className="w-4 h-4 text-muted-foreground" /> View Profile</button>
-                              <div className="border-t border-border/50 my-1" />
-                              <button onClick={() => { updateRole.mutate({ userId, role: "admin" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Shield className="w-4 h-4 text-muted-foreground" /> Make Admin</button>
-                              <button onClick={() => { updateRole.mutate({ userId, role: "user" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><UserCheck className="w-4 h-4 text-muted-foreground" /> Make Member</button>
-                              {status === "active" ? (
-                                <button onClick={() => { updateStatus.mutate({ userId, status: "suspended" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><UserX className="w-4 h-4 text-muted-foreground" /> Suspend</button>
-                              ) : (
-                                <button onClick={() => { updateStatus.mutate({ userId, status: "active" }); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><UserCheck className="w-4 h-4 text-muted-foreground" /> Activate</button>
-                              )}
-                              <button onClick={() => { setPointsTarget(userId); setPointsMode("assign"); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Plus className="w-4 h-4 text-success" /> Assign Points</button>
-                              <button onClick={() => { setPointsTarget(userId); setPointsMode("deduct"); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><Minus className="w-4 h-4 text-error" /> Deduct Points</button>
-                              <button onClick={() => { setPlanTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-muted"><CreditCard className="w-4 h-4 text-primary" /> Assign Plan</button>
-                              <div className="border-t border-border/50 my-1" />
-                              <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-error hover:bg-error/5"><Trash2 className="w-4 h-4" /> Delete</button>
-                            </div>
-                          </>
-                        )}
-                        </div>
                       </td>
                     </tr>
                   );
@@ -156,6 +167,46 @@ export function UsersTable() {
           </CardFooter>
         )}
       </Card>
+
+      {/* Portal-rendered action menu — escapes table overflow so it's always fully visible */}
+      {mounted && openMenu && menuPos && (() => {
+        const row = users.find((r) => {
+          const u = r.users as Record<string, unknown> | undefined;
+          const uid = (u?.id || r.user_id) as string;
+          return uid === openMenu;
+        });
+        if (!row) return null;
+        const userId = openMenu;
+        const status = row.status as UserStatus;
+        const itemCls = "flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-muted";
+        const iconCls = "w-3.5 h-3.5";
+        return createPortal(
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setOpenMenu(null)} />
+            <div
+              className="fixed w-[184px] max-h-[calc(100vh-16px)] overflow-y-auto bg-card rounded-xl border border-border shadow-xl z-[70] py-1"
+              style={{ top: menuPos.top, left: menuPos.left }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button onClick={() => { openProfile(userId); setOpenMenu(null); }} className={itemCls}><Eye className={`${iconCls} text-muted-foreground`} /> View Profile</button>
+              <div className="border-t border-border/50 my-1" />
+              <button onClick={() => { updateRole.mutate({ userId, role: "admin" }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Admin</button>
+              <button onClick={() => { updateRole.mutate({ userId, role: "user" }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Make Member</button>
+              {status === "active" ? (
+                <button onClick={() => { updateStatus.mutate({ userId, status: "suspended" }); setOpenMenu(null); }} className={itemCls}><UserX className={`${iconCls} text-muted-foreground`} /> Suspend</button>
+              ) : (
+                <button onClick={() => { updateStatus.mutate({ userId, status: "active" }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Activate</button>
+              )}
+              <button onClick={() => { setPointsTarget(userId); setPointsMode("assign"); setOpenMenu(null); }} className={itemCls}><Plus className={`${iconCls} text-success`} /> Assign Points</button>
+              <button onClick={() => { setPointsTarget(userId); setPointsMode("deduct"); setOpenMenu(null); }} className={itemCls}><Minus className={`${iconCls} text-error`} /> Deduct Points</button>
+              <button onClick={() => { setPlanTarget(userId); setOpenMenu(null); }} className={itemCls}><CreditCard className={`${iconCls} text-primary`} /> Assign Plan</button>
+              <div className="border-t border-border/50 my-1" />
+              <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className={`${itemCls} text-error hover:bg-error/5`}><Trash2 className={iconCls} /> Delete</button>
+            </div>
+          </>,
+          document.body
+        );
+      })()}
 
       <ConfirmDialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) removeUser.mutate(deleteTarget); setDeleteTarget(null); }} title="Delete User" description="This will ban the user and anonymize their data." confirmLabel="Delete User" isLoading={removeUser.isPending} />
 

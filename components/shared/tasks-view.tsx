@@ -32,12 +32,19 @@ const TASK_STATUS_BADGE: Record<string, { variant: "default" | "primary" | "succ
 export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: string }) {
   const [activeTab, setActiveTab] = useState<"my" | "doable" | "manage" | "review">("my");
 
+  // Lightweight count queries — pageSize 1 so we only pay for the row count.
+  // Auto-refresh alongside the tab content since mutations invalidate these keys.
+  const myTasksCount = useTasks({ page: 1, pageSize: 1, created_by: userId });
+  const doableCount = useMyTasks({ page: 1, pageSize: 1 });
+  const manageCount = useTasks({ page: 1, pageSize: 1 });
+  const reviewCount = usePendingReviews({ page: 1, pageSize: 1 });
+
   const tabs = [
-    { key: "my" as const, label: "My Tasks" },
-    { key: "doable" as const, label: "Doable Tasks" },
+    { key: "my" as const, label: "My Tasks", count: myTasksCount.data?.total ?? 0 },
+    { key: "doable" as const, label: "Doable Tasks", count: doableCount.data?.total ?? 0 },
     ...(isAdmin ? [
-      { key: "manage" as const, label: "Manage Tasks" },
-      { key: "review" as const, label: "Review Submissions" },
+      { key: "manage" as const, label: "Manage Tasks", count: manageCount.data?.total ?? 0 },
+      { key: "review" as const, label: "Review Submissions", count: reviewCount.data?.total ?? 0 },
     ] : []),
   ];
 
@@ -48,7 +55,7 @@ export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: strin
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
             className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap relative
               ${activeTab === tab.key ? "text-primary bg-primary/5 border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
-            {tab.label}
+            {tab.label} ({tab.count})
           </button>
         ))}
       </div>

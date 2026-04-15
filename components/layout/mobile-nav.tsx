@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import { Btn } from "@/components/ui";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
-  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone,
+  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
@@ -21,6 +21,7 @@ const navItems = [
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" as Permission },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" as Permission },
+  { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" as Permission },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" as Permission },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" as Permission },

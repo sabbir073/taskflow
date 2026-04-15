@@ -86,9 +86,12 @@ export interface ProofSubmissionData {
 export interface GroupFormData {
   name: string;
   description: string;
+  rules?: string;
   category: string;
   privacy: import("./database").GroupPrivacy;
   max_members: number;
+  avatar_url?: string | null;
+  cover_url?: string | null;
 }
 
 export interface ProfileUpdateData {

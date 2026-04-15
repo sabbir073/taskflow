@@ -3,23 +3,46 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Input, Label, Select, Textarea, Btn, FieldError } from "@/components/ui";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Select, Textarea, Btn, FieldError } from "@/components/ui";
 import { Upload, X, ImagePlus, Users } from "lucide-react";
-import { useCreateGroup } from "@/hooks/use-groups";
+import { useUpdateGroup } from "@/hooks/use-groups";
 import { GROUP_CATEGORIES } from "@/lib/constants";
-import type { GroupFormData } from "@/types";
 
-export function GroupForm() {
+interface Props {
+  group: Record<string, unknown>;
+  onDone?: () => void;
+}
+
+type FormShape = {
+  name: string;
+  description: string;
+  rules: string;
+  category: string;
+  privacy: "public" | "private";
+  max_members: number;
+};
+
+// Mirrors group-form.tsx but for editing. Admin edits apply immediately;
+// leader edits flip the group back to pending_approval (handled server-side).
+export function GroupEditForm({ group, onDone }: Props) {
   const router = useRouter();
-  const createGroup = useCreateGroup();
-  const { register, handleSubmit, formState: { errors } } = useForm<GroupFormData>({
-    defaultValues: { privacy: "public", max_members: 50, category: "Other" },
-  });
+  const updateGroup = useUpdateGroup();
 
-  const [avatarUrl, setAvatarUrl] = useState<string>("");
-  const [coverUrl, setCoverUrl] = useState<string>("");
+  const [avatarUrl, setAvatarUrl] = useState<string>(String(group.avatar_url || ""));
+  const [coverUrl, setCoverUrl] = useState<string>(String(group.cover_url || ""));
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
+
+  const { register, handleSubmit, formState: { errors } } = useForm<FormShape>({
+    defaultValues: {
+      name: String(group.name || ""),
+      description: String(group.description || ""),
+      rules: String(group.rules || ""),
+      category: String(group.category || "Other"),
+      privacy: (String(group.privacy || "public") as "public" | "private"),
+      max_members: Number(group.max_members || 50),
+    },
+  });
 
   async function uploadOne(file: File): Promise<string | null> {
     const fd = new FormData();
@@ -51,26 +74,34 @@ export function GroupForm() {
     e.target.value = "";
   }
 
-  async function onSubmit(data: GroupFormData) {
-    const result = await createGroup.mutateAsync({
-      ...data,
-      rules: data.rules || "",
-      avatar_url: avatarUrl || null,
-      cover_url: coverUrl || null,
+  async function onSubmit(data: FormShape) {
+    const result = await updateGroup.mutateAsync({
+      groupId: group.id as number,
+      data: {
+        name: data.name,
+        description: data.description,
+        rules: data.rules || "",
+        category: data.category,
+        privacy: data.privacy,
+        max_members: Number(data.max_members),
+        avatar_url: avatarUrl || null,
+        cover_url: coverUrl || null,
+      },
     });
-    if (result.success) router.push("/groups");
+    if (result.success) {
+      if (onDone) onDone();
+      else router.refresh();
+    }
   }
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(onSubmit)(e); }} className="max-w-2xl space-y-6">
-      {/* Cover + avatar */}
+    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(onSubmit)(e); }} className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Group Appearance</CardTitle>
-          <CardDescription>Add a cover image and avatar (optional)</CardDescription>
+          <CardDescription>Update cover image and avatar</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Cover */}
           <div className="space-y-2">
             <Label>Cover Image</Label>
             <div className="relative rounded-xl overflow-hidden border border-border bg-gradient-to-r from-primary/10 to-accent/10 aspect-[3/1]">
@@ -95,7 +126,6 @@ export function GroupForm() {
             </div>
           </div>
 
-          {/* Avatar */}
           <div className="space-y-2">
             <Label>Avatar</Label>
             <div className="flex items-center gap-4">
@@ -125,18 +155,17 @@ export function GroupForm() {
         </CardContent>
       </Card>
 
-      {/* Details */}
       <Card>
         <CardHeader><CardTitle>Group Details</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label>Group Name *</Label>
-            <Input {...register("name", { required: "Name is required" })} placeholder="e.g. Marketing Team" error={!!errors.name} />
+            <Input {...register("name", { required: "Name is required" })} error={!!errors.name} />
             {errors.name && <FieldError>{errors.name.message}</FieldError>}
           </div>
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Textarea {...register("description")} placeholder="What is this group about?" />
+            <Textarea {...register("description")} />
           </div>
           <div className="space-y-1.5">
             <Label>Group Rules</Label>
@@ -170,8 +199,8 @@ export function GroupForm() {
       </Card>
 
       <div className="flex gap-3 justify-end">
-        <Btn variant="outline" type="button" onClick={() => router.back()}>Cancel</Btn>
-        <Btn type="submit" isLoading={createGroup.isPending}>Create Group</Btn>
+        <Btn variant="outline" type="button" onClick={() => onDone?.()}>Cancel</Btn>
+        <Btn type="submit" isLoading={updateGroup.isPending}>Save Changes</Btn>
       </div>
     </form>
   );

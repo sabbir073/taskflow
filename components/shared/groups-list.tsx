@@ -14,9 +14,13 @@ export function GroupsList({ isAdmin }: { isAdmin: boolean }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
+  // Lightweight count queries — pageSize 1 so we only pay for the row count.
+  const myCount = useMyGroups({ page: 1, pageSize: 1 });
+  const manageCount = useAllGroups({ page: 1, pageSize: 1 });
+
   const tabs = [
-    { key: "my" as const, label: "My Groups" },
-    ...(isAdmin ? [{ key: "manage" as const, label: "Manage Groups" }] : []),
+    { key: "my" as const, label: "My Groups", count: myCount.data?.total ?? 0 },
+    ...(isAdmin ? [{ key: "manage" as const, label: "Manage Groups", count: manageCount.data?.total ?? 0 }] : []),
   ];
 
   return (
@@ -30,7 +34,7 @@ export function GroupsList({ isAdmin }: { isAdmin: boolean }) {
             className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors relative
               ${activeTab === tab.key ? "text-primary bg-primary/5 border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}
           >
-            {tab.label}
+            {tab.label} ({tab.count})
           </button>
         ))}
       </div>
@@ -167,7 +171,7 @@ function ManageGroupsTab({ search, setSearch, page, setPage }: { search: string;
                     {approval === "pending_approval" && (
                       <>
                         <Btn size="sm" onClick={() => approve.mutate(groupId)}><CheckCircle className="w-3.5 h-3.5" /></Btn>
-                        <Btn variant="outline" size="sm" onClick={() => reject.mutate(groupId)}><XCircle className="w-3.5 h-3.5" /></Btn>
+                        <Btn variant="outline" size="sm" onClick={() => reject.mutate({ groupId })}><XCircle className="w-3.5 h-3.5" /></Btn>
                       </>
                     )}
                     <Btn variant="ghost" size="sm" className="text-error" onClick={() => remove.mutate(groupId)}><Trash2 className="w-3.5 h-3.5" /></Btn>

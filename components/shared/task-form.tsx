@@ -7,14 +7,14 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label
 import { usePlatforms, useTaskTypes, useCreateTask } from "@/hooks/use-tasks";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { getMyBalance } from "@/lib/actions/users";
-import { useMyGroups } from "@/hooks/use-groups";
+import { useAssignableGroups } from "@/hooks/use-groups";
 import type { TaskFormData } from "@/types";
 import { Coins, AlertCircle, Upload, X, Link2, Plus, Mail } from "lucide-react";
 
 export function TaskForm() {
   const router = useRouter();
   const { data: platforms } = usePlatforms();
-  const { data: groupsData } = useMyGroups({ page: 1, pageSize: 100 });
+  const { data: assignableGroups } = useAssignableGroups();
   const createTask = useCreateTask();
 
   const [selectedPlatformId, setSelectedPlatformId] = useState<number | null>(null);
@@ -226,7 +226,18 @@ export function TaskForm() {
             <Select {...register("target_type")}><option value="all_users">All Users</option><option value="group">Specific Group</option><option value="individual">Individual User</option></Select>
           </div>
           {watchTargetType === "group" && (
-            <div className="space-y-1.5"><Label>Select Group</Label><Select {...register("target_group_id", { valueAsNumber: true })}><option value="">Select a group</option>{groupsData?.data?.map((g: Record<string, unknown>) => <option key={g.id as number} value={g.id as number}>{String(g.name)}</option>)}</Select></div>
+            <div className="space-y-1.5">
+              <Label>Select Group</Label>
+              <Select {...register("target_group_id", { valueAsNumber: true })}>
+                <option value="">Select a group</option>
+                {(assignableGroups || []).map((g) => (
+                  <option key={g.id as number} value={g.id as number}>{String(g.name)}</option>
+                ))}
+              </Select>
+              {(!assignableGroups || assignableGroups.length === 0) && (
+                <p className="text-[11px] text-muted-foreground">No active approved groups available. Groups must be approved and not suspended to receive tasks.</p>
+              )}
+            </div>
           )}
           {watchTargetType === "individual" && (
             <div className="space-y-1.5">

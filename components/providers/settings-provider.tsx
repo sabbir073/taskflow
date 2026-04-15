@@ -9,6 +9,7 @@ interface AppSettings {
   primary_color: string;
   accent_color: string;
   dark_mode_default: boolean;
+  enable_notice_board: boolean;
   [key: string]: unknown;
 }
 
@@ -18,12 +19,27 @@ const defaultSettings: AppSettings = {
   primary_color: "#7C3AED",
   accent_color: "#EC4899",
   dark_mode_default: false,
+  enable_notice_board: true,
 };
 
 const SettingsContext = createContext<AppSettings>(defaultSettings);
 
 export function useAppSettings() {
   return useContext(SettingsContext);
+}
+
+function mergeSettings(rows: Record<string, unknown>[]): AppSettings {
+  const map: AppSettings = { ...defaultSettings };
+  for (const s of rows) {
+    const key = String(s.key);
+    let val = s.value;
+    // Unwrap double-quoted strings from JSON storage
+    if (typeof val === "string") {
+      try { val = JSON.parse(val); } catch { /* keep as-is */ }
+    }
+    (map as Record<string, unknown>)[key] = val;
+  }
+  return map;
 }
 
 export function SettingsProvider({
@@ -34,19 +50,12 @@ export function SettingsProvider({
   initialSettings: Record<string, unknown>[];
 }) {
   const { setTheme, theme } = useTheme();
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const map = { ...defaultSettings };
-    for (const s of initialSettings) {
-      const key = String(s.key);
-      let val = s.value;
-      // Unwrap double-quoted strings from JSON storage
-      if (typeof val === "string") {
-        try { val = JSON.parse(val); } catch { /* keep as-is */ }
-      }
-      (map as Record<string, unknown>)[key] = val;
-    }
-    return map;
-  });
+  const [settings, setSettings] = useState<AppSettings>(() => mergeSettings(initialSettings));
+
+  // Re-sync when the server layout re-fetches settings (e.g. after admin toggles)
+  useEffect(() => {
+    setSettings(mergeSettings(initialSettings));
+  }, [initialSettings]);
 
   // Apply branding CSS variables when settings change
   useEffect(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, Input, Btn } from "@/components/ui";
 import { updateSetting } from "@/lib/actions/settings";
 import { toast } from "sonner";
@@ -42,6 +43,7 @@ function getBoolValue(val: unknown): boolean {
 }
 
 export function SettingsView({ initialSettings }: { initialSettings: Record<string, unknown>[] }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("general");
   const [settings, setSettings] = useState(initialSettings);
   const [saving, setSaving] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export function SettingsView({ initialSettings }: { initialSettings: Record<stri
     setSaving(key);
     const currentValue = getSettingValue(key);
     const result = await updateSetting(key, unwrapValue(currentValue));
-    if (result.success) toast.success("Setting saved");
+    if (result.success) { toast.success("Setting saved"); router.refresh(); }
     else toast.error(result.error);
     setSaving(null);
   }
@@ -102,7 +104,7 @@ export function SettingsView({ initialSettings }: { initialSettings: Record<stri
                               // Save immediately for toggles
                               setSaving(key);
                               updateSetting(key, newVal).then((r) => {
-                                if (r.success) toast.success("Setting saved");
+                                if (r.success) { toast.success("Setting saved"); router.refresh(); }
                                 else toast.error(r.error);
                                 setSaving(null);
                               });

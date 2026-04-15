@@ -27,7 +27,7 @@ export function ManageGroupsView() {
   });
 
   const reject = useMutation({
-    mutationFn: rejectGroup,
+    mutationFn: (groupId: number) => rejectGroup(groupId),
     onSuccess: (r) => { if (r.success) { toast.success(r.message); qc.invalidateQueries({ queryKey: ["admin-groups"] }); } else toast.error(r.error); },
   });
 
