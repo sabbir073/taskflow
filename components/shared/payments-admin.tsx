@@ -85,6 +85,7 @@ function PlansTab() {
     max_groups: "" as string,
     included_credits: 0,
     support_level: "none" as "none" | "community" | "priority",
+    support_ticket_access: "none" as "none" | "medium" | "high",
     features: "",
     display_order: 0,
   });
@@ -104,6 +105,7 @@ function PlansTab() {
       max_groups: "",
       included_credits: 0,
       support_level: "none",
+      support_ticket_access: "none",
       features: "",
       display_order: 0,
     });
@@ -129,6 +131,7 @@ function PlansTab() {
       max_groups: numOrEmpty(p.max_groups),
       included_credits: Number(p.included_credits || 0),
       support_level: (String(p.support_level || "none") as "none" | "community" | "priority"),
+      support_ticket_access: (String(p.support_ticket_access || "none") as "none" | "medium" | "high"),
       features: featuresArr.join("\n"),
       display_order: Number(p.display_order || 0),
     });
@@ -156,6 +159,7 @@ function PlansTab() {
       max_groups: form.max_groups === "" ? null : Number(form.max_groups),
       included_credits: Number(form.included_credits),
       support_level: form.support_level,
+      support_ticket_access: form.support_ticket_access,
       is_active: true,
       display_order: Number(form.display_order) || 0,
     };
@@ -259,6 +263,16 @@ function PlansTab() {
                   <option value="priority">Priority</option>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Support Ticket Access</Label>
+              <Select value={form.support_ticket_access} onChange={(e) => setForm({ ...form, support_ticket_access: e.target.value as "none" | "medium" | "high" })}>
+                <option value="none">No access — users on this plan can&apos;t create tickets</option>
+                <option value="medium">Medium priority — tickets default to Medium</option>
+                <option value="high">High priority — tickets default to High</option>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">Controls whether users on this plan can see the Support page and what priority their tickets get.</p>
             </div>
 
             <div className="space-y-1.5">

@@ -208,6 +208,7 @@ const planSchema = z.object({
   price_monthly: z.number().min(0).nullable().optional(),
   price_half_yearly: z.number().min(0).nullable().optional(),
   price_yearly: z.number().min(0).nullable().optional(),
+  support_ticket_access: z.enum(["none", "medium", "high"]).default("none"),
   is_active: z.boolean().default(true),
   display_order: z.number().int().default(0),
 });

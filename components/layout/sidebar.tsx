@@ -9,8 +9,9 @@ import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard, Megaphone, ShieldAlert, Wallet,
+  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle,
 } from "lucide-react";
+import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
 import type { SessionUser } from "@/types";
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" },
+  { label: "Support", href: "/support", icon: MessageCircle },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" },
   { label: "Landing Editor", href: "/landing-editor", icon: Globe, permission: "landing_page_edit" },
@@ -45,8 +47,10 @@ export function Sidebar({ user }: { user: SessionUser }) {
 
   const appSettings = useAppSettings();
   const subscriptionRequired = appSettings.require_subscription === true;
+  const { data: ticketAccess } = useMyTicketAccess();
   const visibleItems = navItems.filter((item) => {
     if (item.href === "/plans" && !subscriptionRequired) return false;
+    if (item.href === "/support" && ticketAccess?.access === "none") return false;
     if (item.permission && !hasPermission(user.role as UserRole, item.permission)) return false;
     return true;
   });
