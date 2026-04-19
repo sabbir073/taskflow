@@ -9,6 +9,7 @@ import { getMyAssignmentForTask } from "@/lib/actions/assignments";
 import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { UserProfileModal } from "./user-profile-modal";
+import { RichTextContent } from "./rich-text-editor";
 
 interface Props {
   data: { task: Record<string, unknown>; assignments: Record<string, unknown>[] };
@@ -53,7 +54,11 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
               </div>
             </div>
 
-            {!!task.description && <p className="text-sm text-muted-foreground">{String(task.description)}</p>}
+            {!!task.description && (
+              <div className="text-sm text-muted-foreground">
+                <RichTextContent html={String(task.description)} />
+              </div>
+            )}
 
             {(() => {
               const images = (task.images as string[]) || [];

@@ -95,7 +95,12 @@ export function PlansView() {
             const name = String(plan.name || "");
             const currency = String(plan.currency || "usd");
             const description = String(plan.description || "");
-            const features = (plan.features || []) as string[];
+            const rawFeatures = plan.features;
+            const features: string[] = Array.isArray(rawFeatures)
+              ? rawFeatures as string[]
+              : typeof rawFeatures === "string"
+              ? (() => { try { const p = JSON.parse(rawFeatures); return Array.isArray(p) ? p : []; } catch { return []; } })()
+              : [];
             const maxTasks = plan.max_tasks as number | null | undefined;
             const maxGroups = plan.max_groups as number | null | undefined;
             const credits = Number(plan.included_credits || 0);

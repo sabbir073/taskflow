@@ -224,7 +224,7 @@ export async function createPlan(formData: z.infer<typeof planSchema>): Promise<
 
     const { error } = await db.from("plans").insert({
       ...validated,
-      features: JSON.stringify(validated.features),
+      features: validated.features, // JSONB column — pass array directly, no JSON.stringify
     } as never);
     if (error) return { success: false, error: "Failed to create plan" };
     return { success: true, message: "Plan created" };
@@ -242,7 +242,7 @@ export async function updatePlan(planId: number, formData: Partial<z.infer<typeo
 
     const db = getServerClient();
     const update: Record<string, unknown> = { ...formData };
-    if (formData.features) update.features = JSON.stringify(formData.features);
+    // JSONB column — pass array directly, no JSON.stringify
 
     const { error } = await db.from("plans").update(update as never).eq("id", planId);
     if (error) return { success: false, error: "Failed to update plan" };

@@ -116,7 +116,7 @@ function PlansTab() {
 
   function startEdit(p: Record<string, unknown>) {
     setEditingId(p.id as number);
-    const featuresArr = Array.isArray(p.features) ? (p.features as string[]) : [];
+    const featuresArr = Array.isArray(p.features) ? (p.features as string[]) : typeof p.features === "string" ? (() => { try { const x = JSON.parse(String(p.features)); return Array.isArray(x) ? x : []; } catch { return []; } })() : [];
     const numOrEmpty = (v: unknown) => (v === null || v === undefined ? "" : String(v));
     setForm({
       name: String(p.name || ""),
@@ -307,7 +307,7 @@ function PlansTab() {
             const isActive = !!p.is_active;
             const currency = String(p.currency || "usd").toUpperCase();
             const price = Number(p.price || 0);
-            const features = Array.isArray(p.features) ? (p.features as string[]) : [];
+            const features = Array.isArray(p.features) ? (p.features as string[]) : typeof p.features === "string" ? (() => { try { const x = JSON.parse(String(p.features)); return Array.isArray(x) ? x : []; } catch { return []; } })() : [];
             const support = String(p.support_level || "none");
             return (
               <Card key={id} className={isActive ? "" : "opacity-60"}>

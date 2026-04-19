@@ -9,7 +9,7 @@ import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle,
+  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
@@ -34,6 +34,7 @@ const navItems: NavItem[] = [
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" },
+  { label: "Popups", href: "/popups", icon: ImageIcon, permission: "manage_popups" },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" },
   { label: "Support", href: "/support", icon: MessageCircle },
   { label: "Notifications", href: "/notifications", icon: Bell },

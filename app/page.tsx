@@ -5,6 +5,7 @@ import {
   Star, CheckCircle, Globe,
 } from "lucide-react";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { PopupDisplay } from "@/components/shared/popup-display";
 
 const features = [
   { icon: ListTodo, title: "Multi-Platform Tasks", desc: "Create and manage tasks across 10+ social media platforms from a single dashboard." },
@@ -30,6 +31,8 @@ const testimonials = [
 export default function HomePage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* Website popup */}
+      <PopupDisplay target="website" />
       {/* Nav */}
       <nav className="fixed top-0 w-full z-50 backdrop-blur-lg bg-background/80 border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">

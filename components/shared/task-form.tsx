@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, FieldError, Select, Textarea, Btn } from "@/components/ui";
 import { usePlatforms, useTaskTypes, useCreateTask } from "@/hooks/use-tasks";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { RichTextEditor } from "@/components/shared/rich-text-editor";
 import { getMyBalance } from "@/lib/actions/users";
 import { useAssignableGroups } from "@/hooks/use-groups";
 import type { TaskFormData } from "@/types";
@@ -120,7 +121,11 @@ export function TaskForm() {
 
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Textarea {...register("description")} placeholder="Describe what needs to be done..." />
+            <RichTextEditor
+              value={watch("description") || ""}
+              onChange={(html) => setValue("description", html)}
+              placeholder="Describe what needs to be done..."
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

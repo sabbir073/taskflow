@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { SettingsProvider } from "@/components/providers/settings-provider";
 import { StatusWatcher } from "@/components/shared/status-watcher";
+import { PopupDisplay } from "@/components/shared/popup-display";
 
 export default async function DashboardLayout({
   children,
@@ -33,9 +34,13 @@ export default async function DashboardLayout({
 
   const settings = await getSettings();
 
+  const isAdmin = ["super_admin", "admin"].includes(user.role);
+
   return (
     <SettingsProvider initialSettings={settings}>
       <StatusWatcher mode="dashboard" />
+      {/* Dashboard popup — admin never sees it, only regular users */}
+      {!isAdmin && <PopupDisplay target="dashboard" />}
       <div className="flex h-screen overflow-hidden bg-background">
         <Sidebar user={user} />
         <div className="flex-1 flex flex-col overflow-hidden">

@@ -170,7 +170,8 @@ export function RegisterForm() {
                 const sym = currency === "bdt" ? "৳" : "$";
                 const period = String(plan.period || "");
                 const description = String(plan.description || "");
-                const features = (plan.features || []) as string[];
+                const rawF = plan.features;
+                const features: string[] = Array.isArray(rawF) ? rawF as string[] : typeof rawF === "string" ? (() => { try { const p = JSON.parse(rawF); return Array.isArray(p) ? p : []; } catch { return []; } })() : [];
                 const isSelected = selectedPlanId === id;
 
                 return (

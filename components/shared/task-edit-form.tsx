@@ -9,6 +9,7 @@ import { useTaskTypes } from "@/hooks/use-tasks";
 import { updateTask } from "@/lib/actions/tasks";
 import { toast } from "sonner";
 import { Upload, X, Link2, Plus } from "lucide-react";
+import { RichTextEditor } from "@/components/shared/rich-text-editor";
 
 interface Props {
   task: Record<string, unknown>;
@@ -140,7 +141,11 @@ export function TaskEditForm({ task, taskId }: Props) {
 
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Textarea {...register("description")} placeholder="Describe what needs to be done..." />
+            <RichTextEditor
+              value={watch("description") || ""}
+              onChange={(html) => setValue("description", html)}
+              placeholder="Describe what needs to be done..."
+            />
           </div>
 
           {requiredFields.length > 0 && (

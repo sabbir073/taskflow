@@ -6,6 +6,7 @@ import { Megaphone, Plus, Edit2, Trash2, X, Save, Eye, EyeOff } from "lucide-rea
 import { useAllNotices, useCreateNotice, useUpdateNotice, useDeleteNotice } from "@/hooks/use-notices";
 import { formatRelativeTime } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
+import { RichTextEditor, RichTextContent } from "@/components/shared/rich-text-editor";
 
 export function NoticesManager() {
   const { data: notices, isLoading } = useAllNotices();
@@ -72,7 +73,7 @@ export function NoticesManager() {
             </div>
             <div className="space-y-1.5">
               <Label>Message</Label>
-              <Textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} placeholder="Write your announcement here..." rows={4} />
+              <RichTextEditor value={newBody} onChange={setNewBody} placeholder="Write your announcement here..." />
             </div>
             <div className="flex gap-3 justify-end">
               <Btn variant="outline" type="button" onClick={() => { setShowNewForm(false); setNewTitle(""); setNewBody(""); setNewError(""); }}>Cancel</Btn>
@@ -108,7 +109,7 @@ export function NoticesManager() {
                       </div>
                       <div className="space-y-1.5">
                         <Label>Message</Label>
-                        <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} rows={4} />
+                        <RichTextEditor value={editBody} onChange={setEditBody} placeholder="Edit announcement content..." />
                       </div>
                       <div className="flex gap-2 justify-end">
                         <Btn variant="outline" size="sm" type="button" onClick={() => setEditingId(null)}>
@@ -126,7 +127,11 @@ export function NoticesManager() {
                           <h3 className="font-semibold">{String(n.title || "")}</h3>
                           <Badge variant={isActive ? "success" : "default"}>{isActive ? "Active" : "Inactive"}</Badge>
                         </div>
-                        {!!n.body && <p className="text-sm text-muted-foreground mt-1.5 whitespace-pre-wrap">{String(n.body)}</p>}
+                        {!!n.body && (
+                          <div className="text-sm text-muted-foreground mt-1.5">
+                            <RichTextContent html={String(n.body)} />
+                          </div>
+                        )}
                         <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
                           {!!creator?.name && <span>By {String(creator.name)}</span>}
                           {!!n.created_at && <span>• {formatRelativeTime(String(n.created_at))}</span>}

@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import { Btn } from "@/components/ui";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
-  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle,
+  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
@@ -25,6 +25,7 @@ const navItems = [
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" as Permission },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" as Permission },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" as Permission },
+  { label: "Popups", href: "/popups", icon: ImageIcon, permission: "manage_popups" as Permission },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" as Permission },
   { label: "Support", href: "/support", icon: MessageCircle },
   { label: "Notifications", href: "/notifications", icon: Bell },
