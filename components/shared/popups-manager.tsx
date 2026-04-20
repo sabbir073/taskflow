@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Textarea, Select, Label, Btn, Badge, FieldError } from "@/components/ui";
-import { Plus, Edit2, Trash2, Upload, X, Save, Eye, EyeOff, Globe, LayoutDashboard, ExternalLink, ImagePlus } from "lucide-react";
+import { Plus, Edit2, Trash2, X, Save, Eye, EyeOff, Globe, LayoutDashboard, ExternalLink, ImagePlus } from "lucide-react";
 import { useAllPopups, useCreatePopup, useUpdatePopup, useDeletePopup } from "@/hooks/use-popups";
 import { EmptyState } from "./empty-state";
 import { ConfirmDialog } from "./confirm-dialog";

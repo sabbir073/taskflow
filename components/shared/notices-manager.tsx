@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent, Input, Textarea, Label, Btn, Badge, FieldError } from "@/components/ui";
+import { Card, CardHeader, CardTitle, CardContent, Input, Label, Btn, Badge, FieldError } from "@/components/ui";
 import { Megaphone, Plus, Edit2, Trash2, X, Save, Eye, EyeOff } from "lucide-react";
 import { useAllNotices, useCreateNotice, useUpdateNotice, useDeleteNotice } from "@/hooks/use-notices";
 import { formatRelativeTime } from "@/lib/utils";

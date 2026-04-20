@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Card, CardHeader, CardTitle, CardContent, Input, Textarea, Btn, Badge } from "@/components/ui";
+import { Card, CardTitle, CardContent, Input, Textarea, Btn, Badge } from "@/components/ui";
 import {
   Users, Lock, Globe, UserPlus, UserMinus, Crown, Mail, Edit2, Trash2, ShieldOff,
   ShieldCheck, AlertTriangle, Clock, CheckCircle, XCircle, Bell, ExternalLink, ListTodo, X, BookOpen,
@@ -16,6 +16,7 @@ import {
 import { GroupEditForm } from "./group-edit-form";
 import { UserProfileModal } from "./user-profile-modal";
 import { ConfirmDialog } from "./confirm-dialog";
+import { RichTextContent } from "./rich-text-editor";
 import { getInitials, formatDate, formatRelativeTime } from "@/lib/utils";
 
 interface Props {
@@ -358,7 +359,13 @@ export function GroupDetail({ data: initialData, currentUserId, isAdmin }: Props
               <div className={`grid transition-all duration-300 ease-out ${openSection === "rules" ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
                 <div className="overflow-hidden">
                   <CardContent>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{rules}</p>
+                    {rules.trim().startsWith("<") ? (
+                      <div className="text-sm text-muted-foreground">
+                        <RichTextContent html={rules} />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{rules}</p>
+                    )}
                   </CardContent>
                 </div>
               </div>

@@ -5,12 +5,11 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
-import { Btn } from "@/components/ui";
-import { Menu, Bell, Sun, Moon, User, Settings, LogOut, Coins, ChevronDown } from "lucide-react";
+import { Menu, Bell, Sun, Moon, User, Settings, LogOut, Coins, ChevronDown, FileText } from "lucide-react";
 import { getUnreadCount } from "@/lib/actions/notifications";
 import Link from "next/link";
 import type { SessionUser } from "@/types";
-import { ROLE_LABELS } from "@/lib/constants/roles";
+import { ROLE_LABELS, hasPermission } from "@/lib/constants/roles";
 import type { UserRole } from "@/types/database";
 import { MobileNav } from "./mobile-nav";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -24,18 +23,21 @@ export function Header({ user }: { user: SessionUser }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Use TanStack Query for real-time updates via cache invalidation
+  // Use TanStack Query for near-real-time updates via cache invalidation.
+  // Interval is a safety net; cache-invalidation on mutations drives real
+  // updates. 60s is a sensible default that keeps DB load bounded at scale
+  // (1000 concurrent users × 2 queries / 60s = ~33 rpcs/s, acceptable).
   const { data: balance } = useQuery({
     queryKey: ["my-balance"],
     queryFn: getMyBalance,
-    refetchInterval: 10000, // refetch every 10s as fallback
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ["unread-count"],
     queryFn: getUnreadCount,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 
@@ -50,8 +52,11 @@ export function Header({ user }: { user: SessionUser }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [menuOpen]);
 
-  // Close on route change
-  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  // Close on route change — guarded so we only fire setState when actually open
+  useEffect(() => {
+    if (menuOpen) setMenuOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   return (
     <>
@@ -140,13 +145,23 @@ export function Header({ user }: { user: SessionUser }) {
                     <span>My Profile</span>
                   </Link>
                   <Link
-                    href="/settings"
+                    href="/billing"
                     className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
                     onClick={() => setMenuOpen(false)}
                   >
-                    <Settings className="w-4 h-4 text-muted-foreground" />
-                    <span>Settings</span>
+                    <FileText className="w-4 h-4 text-muted-foreground" />
+                    <span>Billing & Invoices</span>
                   </Link>
+                  {hasPermission(user.role as UserRole, "system_settings") && (
+                    <Link
+                      href="/settings"
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <Settings className="w-4 h-4 text-muted-foreground" />
+                      <span>Settings</span>
+                    </Link>
+                  )}
                 </div>
 
                 {/* Logout */}

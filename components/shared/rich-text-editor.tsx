@@ -26,6 +26,7 @@ import {
   Highlighter, Subscript as SubIcon, Superscript as SupIcon,
   Table as TableIcon, Type, Palette, ChevronDown,
 } from "lucide-react";
+import DOMPurify from "isomorphic-dompurify";
 
 interface Props {
   value: string;
@@ -506,6 +507,9 @@ function Sep() { return <div className="w-px h-5 bg-border mx-0.5" />; }
 // ============================================================================
 function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
   const [resizing, setResizing] = useState(false);
+  // Live width in state so the size label can read it without touching the
+  // ref during render (React 19 strict rule).
+  const [currentWidth, setCurrentWidth] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
   const startW = useRef(0);
@@ -518,6 +522,7 @@ function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
     setResizing(true);
     startX.current = e.clientX;
     startW.current = containerRef.current?.offsetWidth || 300;
+    setCurrentWidth(startW.current);
   }, []);
 
   useEffect(() => {
@@ -527,6 +532,7 @@ function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
       const diff = (e.clientX - startX.current) * mult;
       const newW = Math.max(80, startW.current + diff);
       if (containerRef.current) containerRef.current.style.width = `${newW}px`;
+      setCurrentWidth(newW);
     }
     function onMouseUp(e: MouseEvent) {
       setResizing(false);
@@ -563,10 +569,10 @@ function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
         <div onMouseDown={(e) => onHandleDown("right", e)} className={`${handleClass("cursor-ne-resize")} top-1 right-1 w-3 h-3`} />
         <div onMouseDown={(e) => onHandleDown("right", e)} className={`${handleClass("cursor-se-resize")} bottom-1 right-1 w-3 h-3`} />
 
-        {/* Size label */}
-        {show && containerRef.current && (
+        {/* Size label — reads state so we don't touch the ref during render */}
+        {resizing && currentWidth != null && (
           <span className="absolute top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/70 text-white text-[10px] font-mono pointer-events-none">
-            {Math.round(containerRef.current.offsetWidth)}px
+            {Math.round(currentWidth)}px
           </span>
         )}
       </div>
@@ -669,10 +675,10 @@ function YoutubeResizeView({ node, updateAttributes, selected }: NodeViewProps) 
         <div onMouseDown={(e) => onHandleDown("right", e)} className={`${handleClass("cursor-ne-resize")} top-1 right-1 w-3 h-3`} />
         <div onMouseDown={(e) => onHandleDown("right", e)} className={`${handleClass("cursor-se-resize")} bottom-1 right-1 w-3 h-3`} />
 
-        {/* Size label */}
-        {show && containerRef.current && (
+        {/* Size label — uses the computed currentW (state-driven) not the ref */}
+        {resizing && (
           <span className="absolute top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/70 text-white text-[10px] font-mono pointer-events-none">
-            {Math.round(containerRef.current.offsetWidth)}px
+            {Math.round(currentW)}px
           </span>
         )}
       </div>
@@ -683,8 +689,37 @@ function YoutubeResizeView({ node, updateAttributes, selected }: NodeViewProps) 
 // ============================================================================
 // Render stored HTML
 // ============================================================================
+
+// DOMPurify config tuned to what Tiptap actually emits: formatting tags,
+// headings, lists, images, tables, links, plus YouTube iframes (whitelisted
+// hosts). Strips every <script>, event handler, inline javascript: URL, etc.
+const SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    "p", "br", "strong", "em", "u", "s", "code", "pre", "blockquote", "hr",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li",
+    "a", "img", "span", "div",
+    "table", "thead", "tbody", "tr", "th", "td",
+    "sub", "sup", "mark",
+    "iframe", "video",
+  ],
+  ALLOWED_ATTR: [
+    "href", "target", "rel",
+    "src", "alt", "title", "width", "height",
+    "style", "class",
+    "colspan", "rowspan",
+    "frameborder", "allow", "allowfullscreen", "controls",
+  ],
+  // Only allow iframes pointing at YouTube (matches the editor's Youtube ext).
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|ftp|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  ADD_ATTR: ["target"],
+  FORBID_TAGS: ["script", "style", "object", "embed", "form", "input", "button"],
+  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
+};
+
 export function RichTextContent({ html }: { html: string }) {
   if (!html || html === "<p></p>") return null;
+  const clean = DOMPurify.sanitize(html, SANITIZE_CONFIG);
   return (
     <div
       className="prose prose-sm dark:prose-invert max-w-none
@@ -695,7 +730,7 @@ export function RichTextContent({ html }: { html: string }) {
         prose-a:text-primary prose-a:underline
         prose-img:rounded-lg prose-img:max-w-full
         prose-table:border-collapse prose-td:border prose-td:border-border prose-td:p-2 prose-th:border prose-th:border-border prose-th:p-2 prose-th:bg-muted/40"
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: clean }}
     />
   );
 }

@@ -25,7 +25,7 @@ export function useMyGroups(params?: PaginationParams) {
   return useQuery({
     queryKey: ["my-groups", params],
     queryFn: () => getMyGroups(params),
-    refetchInterval: 15000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }
@@ -35,7 +35,7 @@ export function useGroup(groupId: number) {
     queryKey: ["group", groupId],
     queryFn: () => getGroupById(groupId),
     enabled: !!groupId,
-    refetchInterval: 10000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }
@@ -45,7 +45,7 @@ export function useAssignableGroups() {
   return useQuery({
     queryKey: ["assignable-groups"],
     queryFn: getAssignableGroups,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }
@@ -56,7 +56,7 @@ export function useGroupTasks(groupId: number) {
     queryKey: ["group-tasks", groupId],
     queryFn: () => getGroupTasks(groupId),
     enabled: !!groupId,
-    refetchInterval: 10000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }
@@ -160,7 +160,7 @@ export function useTransferLeadership() {
 
 // Admin hooks
 export function useAllGroups(params: PaginationParams & { approval_status?: string }) {
-  return useQuery({ queryKey: ["admin-groups", params], queryFn: () => getAllGroups(params), refetchInterval: 15000 });
+  return useQuery({ queryKey: ["admin-groups", params], queryFn: () => getAllGroups(params), refetchInterval: 60000 });
 }
 
 export function useApproveGroup() {

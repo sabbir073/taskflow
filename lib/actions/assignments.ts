@@ -228,7 +228,7 @@ export async function reviewAssignment(
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-    if (!["super_admin", "admin", "group_leader"].includes(session.user.role)) return { success: false, error: "Unauthorized" };
+    if (!["super_admin", "admin"].includes(session.user.role)) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
     const { data: assignment } = await db.from("task_assignments").select("id, user_id, status, task_id").eq("id", assignmentId).single();
@@ -262,32 +262,30 @@ export async function reviewAssignment(
         points_awarded: pointsToAward,
       } as never).eq("id", assignmentId);
 
-      // 2. CREDIT the submitter's wallet (money transfer IN)
-      const { data: submitterProfile } = await db.from("profiles").select("total_points, tasks_completed").eq("user_id", submitterId).single();
+      // 2. CREDIT the submitter's wallet atomically (handles concurrent
+      // approvals — the RPC updates total_points AND inserts points_history
+      // inside a single transaction, so two parallel approvals can't both
+      // read the same balance and overwrite each other).
+      await db.rpc("adjust_user_points", {
+        p_user_id: submitterId,
+        p_delta: pointsToAward,
+        p_action: "task_completed",
+        p_description: `Task completed and approved (+${pointsToAward.toFixed(2)} pts)`,
+        p_reference_type: "task_assignment",
+        p_reference_id: String(assignmentId),
+      } as never);
+
+      // 3. Bump the submitter's tasks_completed counter (non-financial, safe)
+      const { data: submitterProfile } = await db.from("profiles").select("tasks_completed").eq("user_id", submitterId).single();
       if (submitterProfile) {
-        const sp = submitterProfile as Record<string, unknown>;
-        const newBalance = Number(sp.total_points || 0) + pointsToAward;
-        const newTaskCount = Number(sp.tasks_completed || 0) + 1;
-        await db.from("profiles").update({
-          total_points: newBalance,
-          tasks_completed: newTaskCount,
-        } as never).eq("user_id", submitterId);
+        const newTaskCount = Number((submitterProfile as Record<string, unknown>).tasks_completed || 0) + 1;
+        await db.from("profiles").update({ tasks_completed: newTaskCount } as never).eq("user_id", submitterId);
       }
 
-      // 3. Update task's points_spent counter
+      // 4. Update task's points_spent counter
       await db.from("tasks").update({
         points_spent: currentSpent + pointsToAward,
       } as never).eq("id", record.task_id);
-
-      // 4. Log the transaction in points_history (both sides)
-      await db.from("points_history").insert({
-        user_id: submitterId,
-        amount: pointsToAward,
-        action: "task_completed",
-        description: `Task completed and approved (+${pointsToAward.toFixed(2)} pts)`,
-        reference_type: "task_assignment",
-        reference_id: String(assignmentId),
-      } as never);
 
       // 5. Notify the submitter
       await db.from("notifications").insert({
@@ -310,21 +308,37 @@ export async function reviewAssignment(
         rejection_reason: reason,
       } as never).eq("id", assignmentId);
 
-      // Penalty after 3+ rejections
+      // Penalty fires exactly ONCE, on the 3rd rejection. Previously this
+      // used `>= 3` which re-charged the user for every subsequent rejection
+      // — a user with 5 rejections paid the penalty three times.
       const { count } = await db.from("task_assignments").select("id", { count: "exact", head: true })
         .eq("task_id", record.task_id).eq("user_id", record.user_id).eq("status", "rejected");
 
-      if ((count || 0) >= 3) {
-        await db.from("points_history").insert({
-          user_id: record.user_id, amount: -5, action: "task_rejected",
-          description: "Penalty: 3+ rejections on same task",
-          reference_type: "task_assignment", reference_id: String(assignmentId),
+      if ((count || 0) === 3) {
+        // Try the full -5 penalty atomically. If balance is too low the RPC
+        // rejects (insufficient_balance); in that case, deduct whatever is
+        // available so the user doesn't end up negative.
+        const { error: rpcErr } = await db.rpc("adjust_user_points", {
+          p_user_id: record.user_id,
+          p_delta: -5,
+          p_action: "task_rejected",
+          p_description: "Penalty: 3+ rejections on same task",
+          p_reference_type: "task_assignment",
+          p_reference_id: String(assignmentId),
         } as never);
-
-        const { data: profile } = await db.from("profiles").select("total_points").eq("user_id", record.user_id).single();
-        if (profile) {
-          const currentPoints = Number((profile as Record<string, unknown>).total_points);
-          await db.from("profiles").update({ total_points: Math.max(0, currentPoints - 5) } as never).eq("user_id", record.user_id);
+        if (rpcErr) {
+          const { data: profile } = await db.from("profiles").select("total_points").eq("user_id", record.user_id).single();
+          const current = profile ? Number((profile as Record<string, unknown>).total_points || 0) : 0;
+          if (current > 0) {
+            await db.rpc("adjust_user_points", {
+              p_user_id: record.user_id,
+              p_delta: -current,
+              p_action: "task_rejected",
+              p_description: "Penalty: 3+ rejections (partial — balance too low)",
+              p_reference_type: "task_assignment",
+              p_reference_id: String(assignmentId),
+            } as never);
+          }
         }
       }
     }
@@ -366,4 +380,67 @@ export async function getMyAssignmentForTask(taskId: number): Promise<Record<str
     .single();
 
   return (data as Record<string, unknown>) || null;
+}
+
+// ===== Group leader / admin / task owner: per-user assignment status =====
+// Read-only view of who is assigned to a task and whether they've submitted
+// yet. Used by the task detail page so a group leader can see progress and
+// nudge non-submitters WITHOUT gaining the power to approve/reject.
+export async function getGroupTaskStatus(taskId: number): Promise<
+  Array<{
+    assignment_id: number;
+    user_id: string;
+    name: string;
+    email: string;
+    image: string | null;
+    status: string;
+    submitted_at: string | null;
+    reviewed_at: string | null;
+  }>
+> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  const db = getServerClient();
+
+  // Authorization: admin, task creator, or leader of the task's target group.
+  const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+  let allowed = isAdmin;
+  const { data: task } = await db
+    .from("tasks")
+    .select("created_by, target_type, target_group_id")
+    .eq("id", taskId)
+    .single();
+  if (!task) return [];
+  const t = task as Record<string, unknown>;
+
+  if (!allowed && t.created_by === session.user.id) allowed = true;
+  if (!allowed && t.target_type === "group" && t.target_group_id) {
+    const { data: group } = await db
+      .from("groups")
+      .select("leader_id")
+      .eq("id", t.target_group_id)
+      .single();
+    if (group && (group as Record<string, unknown>).leader_id === session.user.id) allowed = true;
+  }
+  if (!allowed) return [];
+
+  const { data } = await db
+    .from("task_assignments")
+    .select("id, user_id, status, submitted_at, reviewed_at, users!task_assignments_user_id_fkey(name, email, image)")
+    .eq("task_id", taskId)
+    .order("status", { ascending: true });
+
+  return ((data || []) as Record<string, unknown>[]).map((row) => {
+    const u = row.users as Record<string, unknown> | undefined;
+    return {
+      assignment_id: Number(row.id),
+      user_id: String(row.user_id),
+      name: String(u?.name || "Unknown"),
+      email: String(u?.email || ""),
+      image: (u?.image as string | null) || null,
+      status: String(row.status || "pending"),
+      submitted_at: (row.submitted_at as string | null) || null,
+      reviewed_at: (row.reviewed_at as string | null) || null,
+    };
+  });
 }

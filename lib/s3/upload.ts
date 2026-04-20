@@ -37,13 +37,24 @@ export function getCloudFrontUrl(key: string): string {
   return `https://${CLOUDFRONT_DOMAIN}/${key}`;
 }
 
+// Whitelist of extensions we accept — anything else is rejected at the
+// route level. Keeps S3 keys predictable and blocks `.exe`, `.svg` (XSS),
+// etc. Keep lowercase; route normalizes before calling.
+const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "mp4", "webm"]);
+
+export function isAllowedExtension(ext: string): boolean {
+  return ALLOWED_EXTENSIONS.has(ext.toLowerCase());
+}
+
 export function generateFileKey(
   userId: string,
   filename: string,
   folder: string = "uploads"
 ): string {
-  const timestamp = Date.now();
-  const ext = filename.split(".").pop()?.toLowerCase() || "bin";
-  const uniqueId = crypto.randomUUID().split("-")[0];
-  return `${folder}/${userId}/${timestamp}-${uniqueId}.${ext}`;
+  const rawExt = (filename.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const ext = ALLOWED_EXTENSIONS.has(rawExt) ? rawExt : "bin";
+  // Filename is NEVER interpolated into the key — we only take the
+  // whitelisted extension. Prevents path traversal and keeps keys tidy.
+  const uuid = crypto.randomUUID();
+  return `${folder}/${userId}/${uuid}.${ext}`;
 }

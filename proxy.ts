@@ -45,20 +45,23 @@ const authProxy = auth((req) => {
   // and app/suspended/page.tsx. Those two layouts are the single source of
   // truth for active/suspended routing.
 
-  // Banned = fully blocked — force logout flow
-  if (user.status === "banned") {
+  const isBanned = user.status === "banned";
+  const isPending = user.is_approved === false;
+
+  // If the user is on an auth path (login/register/etc):
+  //   - Banned/pending users: LET THEM STAY so they can read the error on the login form.
+  //   - Active users: bounce to /dashboard.
+  if (isAuthPath) {
+    if (isBanned || isPending) return NextResponse.next();
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  }
+
+  // Not on an auth path — enforce the account-state gates.
+  if (isBanned) {
     return NextResponse.redirect(new URL("/login?error=AccountBlocked", req.url));
   }
-
-  // Unapproved = blocked until admin approves
-  if (user.is_approved === false) {
+  if (isPending) {
     return NextResponse.redirect(new URL("/login?error=PendingApproval", req.url));
-  }
-
-  // Already signed in — bounce them away from login/register to the dashboard.
-  // If they're actually suspended the dashboard layout will forward them to /suspended.
-  if (isAuthPath) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
   // Public landing is open to everyone

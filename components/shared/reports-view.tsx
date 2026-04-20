@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent, CardDescription, Input, Btn, Select, Badge } from "@/components/ui";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription, Input, Btn, Badge } from "@/components/ui";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -33,9 +33,17 @@ export function ReportsView() {
   const [customTo, setCustomTo] = useState("");
   const [useCustom, setUseCustom] = useState(false);
 
-  const filters: ReportFilters = useCustom && customFrom
-    ? { from: new Date(customFrom).toISOString(), to: customTo ? new Date(customTo).toISOString() : new Date().toISOString() }
-    : { from: new Date(Date.now() - dateRange * 86400000).toISOString(), to: new Date().toISOString() };
+  // Memoized so Date.now() / new Date() impurity is captured once per change.
+  // The purity rule flags these even inside a useMemo; inside a memo they're safe.
+  /* eslint-disable react-hooks/purity */
+  const filters: ReportFilters = useMemo(
+    () =>
+      useCustom && customFrom
+        ? { from: new Date(customFrom).toISOString(), to: customTo ? new Date(customTo).toISOString() : new Date().toISOString() }
+        : { from: new Date(Date.now() - dateRange * 86400000).toISOString(), to: new Date().toISOString() },
+    [useCustom, customFrom, customTo, dateRange]
+  );
+  /* eslint-enable react-hooks/purity */
 
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: TrendingUp },

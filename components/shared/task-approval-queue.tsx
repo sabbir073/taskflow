@@ -5,7 +5,6 @@ import { Card, CardContent, Btn, Input, Badge } from "@/components/ui";
 import { CheckCircle, XCircle, Inbox, Coins, User as UserIcon } from "lucide-react";
 import { usePendingApprovalTasks, useApproveTask, useRejectTask } from "@/hooks/use-tasks";
 import { EmptyState } from "./empty-state";
-import { formatRelativeTime } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 
 export function TaskApprovalQueue() {

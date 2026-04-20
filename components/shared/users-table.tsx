@@ -3,9 +3,11 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Card, CardContent, CardFooter, Input, Btn, Select, Badge } from "@/components/ui";
-import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus } from "lucide-react";
-import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints } from "@/hooks/use-users";
+import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus, CheckCircle, XCircle, Clock, ShieldCheck, ShieldAlert, Download, Loader2 } from "lucide-react";
+import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints, useApproveUser, useRejectUser } from "@/hooks/use-users";
 import { getUserById } from "@/lib/actions/users";
+import { exportUsersCsv } from "@/lib/actions/exports";
+import { toast } from "sonner";
 import { usePlans, useAdminAssignSubscription } from "@/hooks/use-plans";
 import { ConfirmDialog } from "./confirm-dialog";
 import { getInitials, formatDate } from "@/lib/utils";
@@ -18,6 +20,7 @@ export function UsersTable() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [approvalFilter, setApprovalFilter] = useState<"" | "pending" | "approved">("");
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [pointsTarget, setPointsTarget] = useState<string | null>(null);
@@ -26,9 +29,9 @@ export function UsersTable() {
   const [pointsReason, setPointsReason] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; placement: "up" | "down" } | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => { setMounted(true); }, []);
+  // Client-only sentinel — lazily initialised so SSR returns false, then
+  // first client render is already true without a setState cascade.
+  const [mounted] = useState(() => typeof window !== "undefined");
 
   // Reposition / close on scroll or resize so a fixed-positioned menu never drifts
   useEffect(() => {
@@ -52,16 +55,40 @@ export function UsersTable() {
     setLoadingProfile(false);
   }
 
-  const { data, isLoading } = useUsers({ page, pageSize: 20, search, role: roleFilter || undefined, status: statusFilter || undefined });
+  const { data, isLoading } = useUsers({ page, pageSize: 20, search, role: roleFilter || undefined, status: statusFilter || undefined, approval: approvalFilter || undefined });
   const updateRole = useUpdateUserRole();
   const updateStatus = useUpdateUserStatus();
   const removeUser = useDeleteUser();
   const assignPts = useAssignPoints();
+  const approveUserMut = useApproveUser();
+  const rejectUserMut = useRejectUser();
   const { data: plans } = usePlans();
-  const assignSub = useAdminAssignSubscription();
 
   const users = data?.data || [];
   const totalPages = data?.totalPages || 1;
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await exportUsersCsv();
+      if (!res.success || !res.csv) {
+        toast.error(res.error || "Export failed");
+      } else {
+        const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = res.filename || "users.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Exported");
+      }
+    } catch {
+      toast.error("Export failed");
+    }
+    setExporting(false);
+  }
 
   return (
     <div className="space-y-4">
@@ -76,6 +103,15 @@ export function UsersTable() {
         <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="sm:w-44">
           <option value="">All Statuses</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="banned">Banned</option>
         </Select>
+        <Select value={approvalFilter} onChange={(e) => { setApprovalFilter(e.target.value as "" | "pending" | "approved"); setPage(1); }} className="sm:w-44">
+          <option value="">All Approvals</option>
+          <option value="pending">Awaiting Approval</option>
+          <option value="approved">Approved</option>
+        </Select>
+        <Btn variant="outline" onClick={handleExport} disabled={exporting}>
+          {exporting ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Download className="w-3.5 h-3.5 mr-1" />}
+          Export CSV
+        </Btn>
       </div>
 
       <Card>
@@ -101,8 +137,10 @@ export function UsersTable() {
                   const userId = (u?.id || row.user_id) as string;
                   const name = String(u?.name || "Unknown");
                   const email = String(u?.email || "");
+                  const emailVerified = !!u?.email_verified;
                   const role = row.role as UserRole;
                   const status = row.status as UserStatus;
+                  const isApproved = row.is_approved !== false;
                   const points = Number(row.total_points || 0);
                   const tasks = Number(row.tasks_completed || 0);
                   const joined = String(u?.created_at || row.created_at || "");
@@ -112,11 +150,28 @@ export function UsersTable() {
                       <td className="px-5 py-3">
                         <button onClick={() => openProfile(userId)} className="flex items-center gap-3 text-left hover:opacity-80 transition-opacity">
                           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
-                          <div><p className="font-medium hover:text-primary transition-colors">{name}</p><p className="text-xs text-muted-foreground">{email}</p></div>
+                          <div>
+                            <p className="font-medium hover:text-primary transition-colors flex items-center gap-1.5">
+                              {name}
+                              {emailVerified ? (
+                                <ShieldCheck className="w-3.5 h-3.5 text-success" aria-label="Email verified" />
+                              ) : (
+                                <ShieldAlert className="w-3.5 h-3.5 text-warning" aria-label="Email not verified" />
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{email}</p>
+                          </div>
                         </button>
                       </td>
                       <td className="px-5 py-3"><Badge variant="primary">{ROLE_LABELS[role] || role}</Badge></td>
-                      <td className="px-5 py-3"><Badge variant={STATUS_VARIANT[status] || "default"}>{status}</Badge></td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge variant={STATUS_VARIANT[status] || "default"}>{status}</Badge>
+                          {!isApproved && (
+                            <Badge variant="warning"><Clock className="w-2.5 h-2.5 mr-0.5" /> Pending</Badge>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-5 py-3 font-medium">{points.toFixed(2)}</td>
                       <td className="px-5 py-3">{tasks}</td>
                       <td className="px-5 py-3 text-muted-foreground">{formatDate(joined)}</td>
@@ -178,6 +233,7 @@ export function UsersTable() {
         if (!row) return null;
         const userId = openMenu;
         const status = row.status as UserStatus;
+        const rowApproved = row.is_approved !== false;
         const itemCls = "flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-muted";
         const iconCls = "w-3.5 h-3.5";
         return createPortal(
@@ -189,6 +245,13 @@ export function UsersTable() {
               onClick={(e) => e.stopPropagation()}
             >
               <button onClick={() => { openProfile(userId); setOpenMenu(null); }} className={itemCls}><Eye className={`${iconCls} text-muted-foreground`} /> View Profile</button>
+              {!rowApproved && (
+                <>
+                  <div className="border-t border-border/50 my-1" />
+                  <button onClick={() => { approveUserMut.mutate(userId); setOpenMenu(null); }} className={`${itemCls} text-success hover:bg-success/5`}><CheckCircle className={iconCls} /> Approve Signup</button>
+                  <button onClick={() => { rejectUserMut.mutate(userId); setOpenMenu(null); }} className={`${itemCls} text-error hover:bg-error/5`}><XCircle className={iconCls} /> Reject Signup</button>
+                </>
+              )}
               <div className="border-t border-border/50 my-1" />
               <button onClick={() => { updateRole.mutate({ userId, role: "admin" }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Admin</button>
               <button onClick={() => { updateRole.mutate({ userId, role: "user" }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Make Member</button>

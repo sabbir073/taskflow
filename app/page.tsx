@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { PopupDisplay } from "@/components/shared/popup-display";
+import { PlatformIcon } from "@/components/shared/platform-icon";
 
 const features = [
   { icon: ListTodo, title: "Multi-Platform Tasks", desc: "Create and manage tasks across 10+ social media platforms from a single dashboard." },
@@ -86,13 +87,13 @@ export default function HomePage() {
       <section id="platforms" className="py-16 border-y border-border/50 bg-muted/20">
         <div className="max-w-5xl mx-auto px-4">
           <p className="text-center text-sm text-muted-foreground mb-8 font-medium uppercase tracking-wider">Supported Platforms</p>
-          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-6 md:gap-x-12">
             {Object.entries(PLATFORM_CONFIG).map(([slug, config]) => (
-              <div key={slug} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: config.color }}>
-                  {config.name.charAt(0)}
+              <div key={slug} className="flex items-center gap-2.5 group transition-transform hover:-translate-y-0.5">
+                <div className="transition-transform group-hover:scale-110" style={{ color: config.color }}>
+                  <PlatformIcon slug={slug} className="w-7 h-7" />
                 </div>
-                <span className="text-sm font-medium hidden sm:inline">{config.name}</span>
+                <span className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">{config.name}</span>
               </div>
             ))}
           </div>

@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Card, CardContent, Input, Select, Btn, Badge } from "@/components/ui";
-import { Search, Clock, CheckCircle, XCircle, Send, Plus, Coins, Trash2 } from "lucide-react";
-import { useTasks, useMyTasks, usePendingApprovalTasks, usePendingReviews, useApproveTask, useRejectTask, useReviewAssignment, useDeleteTask, useAcceptTask } from "@/hooks/use-tasks";
+import { Search, Clock, CheckCircle, XCircle, Plus, Coins, Trash2 } from "lucide-react";
+import { useTasks, useMyTasks, usePendingReviews, useApproveTask, useRejectTask, useReviewAssignment, useDeleteTask, useAcceptTask } from "@/hooks/use-tasks";
 import { EmptyState } from "./empty-state";
 import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
@@ -400,7 +400,9 @@ function ReviewTab() {
 
 // ===== Shared components =====
 
-function TaskGrid({ items, isAssignmentView, isCreatorView }: { items: Record<string, unknown>[]; isAssignmentView?: boolean; isCreatorView?: boolean }) {
+// Currently unused — kept as a reusable grid for future list tabs.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _TaskGrid({ items, isAssignmentView, isCreatorView }: { items: Record<string, unknown>[]; isAssignmentView?: boolean; isCreatorView?: boolean }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {items.map((item) => {

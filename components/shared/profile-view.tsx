@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { User, Mail, Phone, Trophy, Target, Flame, Calendar, Lock, Loader2, Eye, EyeOff, Camera, Sparkles, CheckCircle, AlertTriangle, Clock, ListTodo, Users as UsersIcon } from "lucide-react";
-import { updateProfile, changePassword } from "@/lib/actions/users";
+import { User, Mail, Phone, Trophy, Target, Flame, Calendar, Lock, Loader2, Eye, EyeOff, Camera, Sparkles, CheckCircle, AlertTriangle, Clock, ListTodo, Users as UsersIcon, ShieldCheck, ShieldAlert, Send } from "lucide-react";
+import { updateProfile, changePassword, resendVerificationEmail } from "@/lib/actions/users";
 import { useMyQuotaUsage } from "@/hooks/use-plans";
 import { toast } from "sonner";
 import { formatDate, getInitials } from "@/lib/utils";
@@ -40,11 +41,6 @@ const passwordSchema = z.object({
   path: ["confirmPassword"],
 });
 
-const inputClass = (hasError?: boolean) =>
-  `w-full h-11 px-4 rounded-xl border bg-background text-sm placeholder:text-muted-foreground/60
-  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all duration-200
-  ${hasError ? "border-error ring-1 ring-error/20" : "border-border hover:border-foreground/20"}`;
-
 const inputWithIconClass = (hasError?: boolean) =>
   `w-full h-11 pl-11 pr-4 rounded-xl border bg-background text-sm placeholder:text-muted-foreground/60
   focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all duration-200
@@ -64,7 +60,28 @@ export function ProfileView({ sessionUser, profileData }: Props) {
   const [showNewPw, setShowNewPw] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(sessionUser.image || "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [sendingVerify, setSendingVerify] = useState(false);
   const { data: quota } = useMyQuotaUsage();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Show a toast once when the user returns from the verify-email link
+  useEffect(() => {
+    const v = searchParams.get("verify");
+    if (!v) return;
+    if (v === "success") toast.success("Email verified successfully!");
+    else if (v === "failed") toast.error("Verification link is invalid or expired");
+    else if (v === "missing") toast.error("Verification token missing");
+    router.replace("/profile");
+  }, [searchParams, router]);
+
+  async function handleResendVerify() {
+    setSendingVerify(true);
+    const res = await resendVerificationEmail();
+    if (res.success) toast.success(res.message || "Verification email sent");
+    else toast.error(res.error || "Could not send verification email");
+    setSendingVerify(false);
+  }
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -137,6 +154,15 @@ export function ProfileView({ sessionUser, profileData }: Props) {
     { icon: Calendar, label: "Joined", value: user?.created_at ? formatDate(user.created_at as string) : "-", color: "text-primary", bg: "bg-primary/10" },
   ];
 
+  // Memoized to avoid impure Date.now() during render (strict-mode lint).
+  // The purity rule flags Date.now everywhere; inside useMemo it's fine.
+  /* eslint-disable react-hooks/purity */
+  const daysLeft = useMemo(
+    () => (quota?.expiresAt ? Math.ceil((new Date(quota.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null),
+    [quota?.expiresAt]
+  );
+  /* eslint-enable react-hooks/purity */
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-5xl">
       {/* Profile overview card + plan */}
@@ -181,13 +207,70 @@ export function ProfileView({ sessionUser, profileData }: Props) {
             </div>
           ))}
         </div>
+
+        {/* Email verification status */}
+        {(() => {
+          const isVerified = !!user?.email_verified;
+          return (
+            <div
+              className={`px-4 pb-4 -mt-2 ${isVerified ? "" : ""}`}
+            >
+              <div
+                className={`rounded-xl border p-3 flex items-start gap-3 ${
+                  isVerified
+                    ? "border-success/30 bg-success/5"
+                    : "border-warning/30 bg-warning/5"
+                }`}
+              >
+                <div
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                    isVerified ? "bg-success/15" : "bg-warning/15"
+                  }`}
+                >
+                  {isVerified ? (
+                    <ShieldCheck className="w-4 h-4 text-success" />
+                  ) : (
+                    <ShieldAlert className="w-4 h-4 text-warning" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">
+                    {isVerified ? "Email verified" : "Email not verified"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                    {isVerified
+                      ? `Verified on ${formatDate(String(user?.email_verified))}`
+                      : "Verifying your email is optional — it enables priority support and faster account recovery."}
+                  </p>
+                  {!isVerified && (
+                    <button
+                      type="button"
+                      onClick={handleResendVerify}
+                      disabled={sendingVerify}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-warning hover:text-warning/80 disabled:opacity-60"
+                    >
+                      {sendingVerify ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" /> Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3 h-3" /> Send verification email
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Current plan card */}
       {(() => {
         if (!quota) return null;
         const hasPlan = !!quota.planName;
-        const daysLeft = quota.expiresAt ? Math.ceil((new Date(quota.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
         const expiredOrSoon = quota.isExpired || (daysLeft != null && daysLeft <= 7);
 
         return (
@@ -222,6 +305,9 @@ export function ProfileView({ sessionUser, profileData }: Props) {
                     <p className="font-semibold text-sm">
                       {quota.tasksUsed} / {quota.tasksLimit == null ? "∞" : quota.tasksLimit}
                     </p>
+                    {quota.carryOverTasks > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">incl. {quota.carryOverTasks} carried over</p>
+                    )}
                   </div>
                   <div className="p-2.5 rounded-lg bg-muted/40">
                     <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
@@ -230,6 +316,9 @@ export function ProfileView({ sessionUser, profileData }: Props) {
                     <p className="font-semibold text-sm">
                       {quota.groupsUsed} / {quota.groupsLimit == null ? "∞" : quota.groupsLimit}
                     </p>
+                    {quota.carryOverGroups > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">incl. {quota.carryOverGroups} carried over</p>
+                    )}
                   </div>
                 </div>
               </div>

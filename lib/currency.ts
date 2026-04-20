@@ -15,6 +15,24 @@ export function convertCurrency(
   return { amount: baseAmount, currency: to };
 }
 
+// How many months a period covers. Used to scale plan quotas
+// (max_tasks, max_groups, included_credits) so a yearly buyer gets 12× what
+// a monthly buyer gets. `forever` returns null — unlimited.
+export function periodMultiplier(period: string | null | undefined): number | null {
+  switch (period) {
+    case "monthly":
+      return 1;
+    case "half_yearly":
+      return 6;
+    case "yearly":
+      return 12;
+    case "forever":
+      return null;
+    default:
+      return 1;
+  }
+}
+
 // Period → expiry date offset (returns ISO string or null for "forever")
 export function computeExpiresAt(period: string): string | null {
   const d = new Date();

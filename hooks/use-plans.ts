@@ -14,24 +14,24 @@ function invalidatePlans(qc: ReturnType<typeof useQueryClient>) {
 }
 
 export function usePlans() {
-  return useQuery({ queryKey: ["plans"], queryFn: getPlans, refetchInterval: 20000 });
+  return useQuery({ queryKey: ["plans"], queryFn: getPlans, refetchInterval: 120000 });
 }
 
 // Admin — includes inactive plans for management
 export function useAllPlans() {
-  return useQuery({ queryKey: ["all-plans"], queryFn: getAllPlans, refetchInterval: 20000 });
+  return useQuery({ queryKey: ["all-plans"], queryFn: getAllPlans, refetchInterval: 120000 });
 }
 
 export function useMySubscription() {
-  return useQuery({ queryKey: ["my-subscription"], queryFn: getMySubscription, refetchInterval: 15000 });
+  return useQuery({ queryKey: ["my-subscription"], queryFn: getMySubscription, refetchInterval: 60000 });
 }
 
 export function useMyQuotaUsage() {
-  return useQuery({ queryKey: ["my-quota"], queryFn: getMyQuotaUsage, refetchInterval: 15000 });
+  return useQuery({ queryKey: ["my-quota"], queryFn: getMyQuotaUsage, refetchInterval: 60000 });
 }
 
 export function useMySubscriptionStatus() {
-  return useQuery({ queryKey: ["my-sub-status"], queryFn: getMySubscriptionStatus, refetchInterval: 15000 });
+  return useQuery({ queryKey: ["my-sub-status"], queryFn: getMySubscriptionStatus, refetchInterval: 60000 });
 }
 
 export function useSubscribe() {

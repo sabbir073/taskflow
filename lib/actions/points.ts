@@ -74,18 +74,20 @@ export async function awardDailyLoginBonus(): Promise<{ awarded: boolean; points
   const multiplier = newStreak >= 7 ? 1.5 : 1;
   const points = Math.floor(basePoints * multiplier);
 
-  // Award points
-  await db.from("points_history").insert({
-    user_id: session.user.id,
-    amount: points,
-    action: "daily_login",
-    description: `Daily login bonus${multiplier > 1 ? " (streak bonus!)" : ""}`,
+  // Award points atomically, plus update streak counters in a separate
+  // non-financial write.
+  await db.rpc("adjust_user_points", {
+    p_user_id: session.user.id,
+    p_delta: points,
+    p_action: "daily_login",
+    p_description: `Daily login bonus${multiplier > 1 ? " (streak bonus!)" : ""}`,
+    p_reference_type: null,
+    p_reference_id: null,
   } as never);
 
   await db
     .from("profiles")
     .update({
-      total_points: ((p.total_points as number) || 0) + points,
       current_streak: newStreak,
       longest_streak: longestStreak,
       last_active_at: new Date().toISOString(),

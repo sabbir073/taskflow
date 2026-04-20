@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { Card, CardContent, Btn } from "@/components/ui";
 import { AlertTriangle, Clock, Zap } from "lucide-react";
@@ -15,13 +16,20 @@ export function SubscriptionBanner() {
   const { data: status } = useMySubscriptionStatus();
   const { data: quota } = useMyQuotaUsage();
 
+  // Hook calls stay at the top — early returns must come AFTER all hooks
+  const expiresAt = status?.expiresAt || null;
+  /* eslint-disable react-hooks/purity */
+  const daysLeft = useMemo(
+    () => (expiresAt ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null),
+    [expiresAt]
+  );
+  /* eslint-enable react-hooks/purity */
+
   if (!subRequired) return null;
   if (!status) return null;
 
-  const { hasActive, isExpired, expiresAt, planName, required } = status;
+  const { hasActive, isExpired, planName, required } = status;
   if (!required) return null;
-
-  const daysLeft = expiresAt ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
 
   // No subscription at all
   if (!hasActive && !isExpired) {

@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label
 import { Upload, X, ImagePlus, Users } from "lucide-react";
 import { useUpdateGroup } from "@/hooks/use-groups";
 import { GROUP_CATEGORIES } from "@/lib/constants";
+import { RichTextEditor } from "@/components/shared/rich-text-editor";
 
 interface Props {
   group: Record<string, unknown>;
@@ -33,7 +34,7 @@ export function GroupEditForm({ group, onDone }: Props) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
 
-  const { register, handleSubmit, formState: { errors } } = useForm<FormShape>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormShape>({
     defaultValues: {
       name: String(group.name || ""),
       description: String(group.description || ""),
@@ -169,10 +170,10 @@ export function GroupEditForm({ group, onDone }: Props) {
           </div>
           <div className="space-y-1.5">
             <Label>Group Rules</Label>
-            <Textarea
-              {...register("rules")}
-              placeholder={"Rules every member should follow.\n1. ...\n2. ..."}
-              rows={5}
+            <RichTextEditor
+              value={watch("rules") || ""}
+              onChange={(html) => setValue("rules", html)}
+              placeholder="Rules every member should follow..."
             />
             <p className="text-[11px] text-muted-foreground">Shown to every member on the group page.</p>
           </div>

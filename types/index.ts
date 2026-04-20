@@ -56,6 +56,7 @@ export interface LoginFormData {
 export interface TaskFormData {
   title: string;
   description: string;
+  ai_prompt?: string | null;
   platform_id: number;
   task_type_id: number;
   task_data: Record<string, string>;

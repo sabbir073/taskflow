@@ -13,7 +13,7 @@ export function useMyTicketAccess() {
 }
 
 export function useMyTickets(params?: PaginationParams & { status?: string }) {
-  return useQuery({ queryKey: ["my-tickets", params], queryFn: () => getMyTickets(params), refetchInterval: 10000 });
+  return useQuery({ queryKey: ["my-tickets", params], queryFn: () => getMyTickets(params), refetchInterval: 60000 });
 }
 
 export function useTicket(ticketId: number) {
@@ -21,7 +21,7 @@ export function useTicket(ticketId: number) {
     queryKey: ["ticket", ticketId],
     queryFn: () => getTicketById(ticketId),
     enabled: !!ticketId,
-    refetchInterval: 8000,
+    refetchInterval: 60000,
   });
 }
 
@@ -57,7 +57,7 @@ export function useReplyToTicket() {
 }
 
 export function useAllTickets(params?: PaginationParams & { status?: string; priority?: string }) {
-  return useQuery({ queryKey: ["all-tickets", params], queryFn: () => getAllTickets(params), refetchInterval: 10000 });
+  return useQuery({ queryKey: ["all-tickets", params], queryFn: () => getAllTickets(params), refetchInterval: 60000 });
 }
 
 export function useUpdateTicketStatus() {

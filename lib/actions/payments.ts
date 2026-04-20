@@ -3,7 +3,17 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
-import { convertCurrency } from "@/lib/currency";
+import { convertCurrency, periodMultiplier } from "@/lib/currency";
+import {
+  sendPaymentReceivedEmail,
+  sendPaymentApprovedEmail,
+  sendPaymentRejectedEmail,
+  sendAdminNewPaymentAlert,
+} from "@/lib/email";
+import { generateInvoicePdfBuffer } from "@/lib/pdf/invoice";
+import { computeRemainingQuota } from "@/lib/subscription-check";
+import { recordAudit } from "@/lib/audit";
+import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 type DB = ReturnType<typeof getServerClient>;
@@ -31,6 +41,16 @@ async function notifyAdmins(
     data,
   }));
   await db.from("notifications").insert(notifs as never[]);
+}
+
+async function getAdminEmails(db: DB): Promise<string[]> {
+  const { data: admins } = await db
+    .from("users")
+    .select("email, profiles!inner(role)")
+    .in("profiles.role", ["super_admin", "admin"]);
+  return ((admins || []) as Record<string, unknown>[])
+    .map((a) => a.email as string)
+    .filter((e) => !!e);
 }
 
 // ============================================================================
@@ -240,6 +260,13 @@ export async function submitPayment(formData: z.infer<typeof paymentSubmitSchema
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
+    // 10 submissions/hour per user — avoids accidental double-click storms and
+    // limits fraudulent churn through the manual-review queue.
+    const rl = checkRate("submit-payment", session.user.id, 10, 60 * 60 * 1000);
+    if (!rl.allowed) {
+      return { success: false, error: `Too many payment submissions — try again in ${formatRetryAfter(rl.retryAfterSec)}` };
+    }
+
     const validated = paymentSubmitSchema.parse(formData);
     const db = getServerClient();
 
@@ -348,6 +375,58 @@ export async function submitPayment(formData: z.infer<typeof paymentSubmitSchema
       link: "/plans",
       data: { purpose: validated.purpose, transaction_id: validated.transaction_id },
     } as never);
+
+    // --- Emails (best-effort, never blocks the response) ---
+    const { data: userRow } = await db
+      .from("users")
+      .select("email, name")
+      .eq("id", session.user.id)
+      .single();
+    const userEmail = userRow ? String((userRow as Record<string, unknown>).email || "") : "";
+    const userDisplayName = userRow ? String((userRow as Record<string, unknown>).name || userName) : userName;
+
+    // Fetch the auto-generated invoice number for the just-inserted row
+    const { data: justInserted } = await db
+      .from("payments")
+      .select("invoice_number")
+      .eq("user_id", session.user.id)
+      .eq("transaction_id", validated.transaction_id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const invNum =
+      justInserted && (justInserted as Record<string, unknown>[])[0]
+        ? String((justInserted as Record<string, unknown>[])[0].invoice_number || "")
+        : "";
+
+    const { data: methodName } = await db
+      .from("payment_methods")
+      .select("name")
+      .eq("id", validated.payment_method_id)
+      .single();
+    const methodDisplay = methodName ? String((methodName as Record<string, unknown>).name || "—") : "—";
+
+    const summary = {
+      invoiceNumber: invNum || `#${Date.now()}`,
+      amount,
+      currency,
+      description,
+      method: methodDisplay,
+      transactionId: validated.transaction_id,
+    };
+
+    if (userEmail) {
+      await sendPaymentReceivedEmail(userEmail, userDisplayName, summary);
+    }
+    const adminEmails = await getAdminEmails(db);
+    if (adminEmails.length > 0) {
+      await sendAdminNewPaymentAlert(adminEmails, {
+        invoiceNumber: summary.invoiceNumber,
+        userName: userDisplayName,
+        amount,
+        currency,
+        description,
+      });
+    }
 
     return { success: true, message: "Payment submitted — awaiting admin review" };
   } catch (err) {
@@ -479,7 +558,7 @@ export async function reviewPayment(
     const db = getServerClient();
     const { data: payment } = await db
       .from("payments")
-      .select("*")
+      .select("*, users!payments_user_id_fkey(email, name), payment_methods(name), plans(name), point_packages(name, points)")
       .eq("id", paymentId)
       .single();
 
@@ -488,14 +567,56 @@ export async function reviewPayment(
 
     if (p.status !== "pending") return { success: false, error: "This payment has already been reviewed" };
 
+    // Double-approval guard: only proceed if we were the ones to flip status
+    // from pending. A parallel admin click lands here with the pending read
+    // too, but their update affects zero rows because ours already committed.
     const newStatus = action === "approve" ? "approved" : "rejected";
-    await db.from("payments").update({
-      status: newStatus,
-      review_notes: notes || null,
-      reviewed_by: session.user.id,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as never).eq("id", paymentId);
+    const { data: claimed } = await db
+      .from("payments")
+      .update({
+        status: newStatus,
+        review_notes: notes || null,
+        reviewed_by: session.user.id,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as never)
+      .eq("id", paymentId)
+      .eq("status", "pending")
+      .select("id");
+    if (!claimed || (claimed as unknown[]).length === 0) {
+      return { success: false, error: "This payment was already reviewed by another admin" };
+    }
+
+    await recordAudit(
+      db,
+      session.user.id,
+      action === "approve" ? "approve_payment" : "reject_payment",
+      "payment",
+      String(paymentId),
+      { amount: Number(p.amount || 0), currency: String(p.currency || "usd"), purpose: String(p.purpose || ""), notes: notes || null }
+    );
+
+    // Pre-gather invoice data used for email/PDF regardless of outcome
+    const buyerRow = p.users as Record<string, unknown> | undefined;
+    const buyerEmail = String(buyerRow?.email || "");
+    const buyerName = String(buyerRow?.name || "User");
+    const methodName = String((p.payment_methods as Record<string, unknown> | undefined)?.name || "—");
+    const planName = String((p.plans as Record<string, unknown> | undefined)?.name || "");
+    const pkg = p.point_packages as Record<string, unknown> | undefined;
+    const emailDescription =
+      String(p.purpose || "") === "points" && pkg
+        ? `${String(pkg.name || "Points Package")} — ${Number(pkg.points || 0).toFixed(0)} credits`
+        : planName
+        ? `${planName} plan subscription`
+        : "Payment";
+    const emailSummary = {
+      invoiceNumber: String(p.invoice_number || `#${paymentId}`),
+      amount: Number(p.amount || 0),
+      currency: String(p.currency || "usd"),
+      description: emailDescription,
+      method: methodName,
+      transactionId: String(p.transaction_id || "—"),
+    };
 
     const userId = p.user_id as string | null;
 
@@ -512,6 +633,10 @@ export async function reviewPayment(
           const m = notesStr.match(/\[period:(monthly|half_yearly|yearly)\]/);
           let periodType = m ? m[1] : null;
 
+          // Snapshot the user's LEFT-OVER quota BEFORE cancelling the old
+          // sub, so we can roll the remainder into the new one.
+          const remaining = await computeRemainingQuota(db, userId);
+
           // Deactivate existing subs
           await db.from("user_subscriptions").update({ status: "cancelled" } as never).eq("user_id", userId).eq("status", "active");
 
@@ -526,6 +651,10 @@ export async function reviewPayment(
             periodType = "monthly";
           }
 
+          // Scale included credits by period: yearly pays 12×, half-yearly 6×.
+          const mult = periodMultiplier(periodType) ?? 1;
+          includedCredits = includedCredits * mult;
+
           // Compute expiry
           let expiresAt: string | null = null;
           const now = new Date();
@@ -538,29 +667,31 @@ export async function reviewPayment(
             plan_id: planId,
             period_type: periodType,
             status: "active",
+            // Anchor the billing window to approval time so the quota counter
+            // doesn't inherit an older default (was previously missing,
+            // causing the sub window to start from row-insert rather than
+            // the moment the user actually paid).
+            starts_at: new Date().toISOString(),
             expires_at: expiresAt,
+            // Leftover quota from the previous sub rides forward, so a user
+            // who buys a new plan mid-cycle doesn't lose what they paid for.
+            carry_over_tasks: remaining.tasks,
+            carry_over_groups: remaining.groups,
             notified_expiring_7d: false,
             notified_expiring_1d: false,
             notified_expired: false,
           } as never);
 
           // Credit the plan's included credits to the user's wallet
+          // (atomic — no race between concurrent approvals).
           if (includedCredits > 0) {
-            const { data: profile } = await db
-              .from("profiles")
-              .select("total_points")
-              .eq("user_id", userId)
-              .single();
-            const balance = profile ? Number((profile as Record<string, unknown>).total_points || 0) : 0;
-            await db.from("profiles").update({ total_points: balance + includedCredits } as never).eq("user_id", userId);
-
-            await db.from("points_history").insert({
-              user_id: userId,
-              amount: includedCredits,
-              action: "milestone",
-              description: `Plan credits from "${planName}" subscription (+${includedCredits.toFixed(2)} pts)`,
-              reference_type: "payment",
-              reference_id: String(paymentId),
+            await db.rpc("adjust_user_points", {
+              p_user_id: userId,
+              p_delta: includedCredits,
+              p_action: "milestone",
+              p_description: `Plan credits from "${planName}" subscription (+${includedCredits.toFixed(2)} pts)`,
+              p_reference_type: "payment",
+              p_reference_id: String(paymentId),
             } as never);
 
             // Dedicated notification so the user sees the credit drop
@@ -582,17 +713,13 @@ export async function reviewPayment(
       } else if (purpose === "points") {
         const points = Number(p.points_amount || 0);
         if (points > 0) {
-          const { data: profile } = await db.from("profiles").select("total_points").eq("user_id", userId).single();
-          const balance = profile ? Number((profile as Record<string, unknown>).total_points || 0) : 0;
-          await db.from("profiles").update({ total_points: balance + points } as never).eq("user_id", userId);
-
-          await db.from("points_history").insert({
-            user_id: userId,
-            amount: points,
-            action: "milestone",
-            description: `Points purchase approved (+${points.toFixed(2)} pts)`,
-            reference_type: "payment",
-            reference_id: String(paymentId),
+          await db.rpc("adjust_user_points", {
+            p_user_id: userId,
+            p_delta: points,
+            p_action: "milestone",
+            p_description: `Points purchase approved (+${points.toFixed(2)} pts)`,
+            p_reference_type: "payment",
+            p_reference_id: String(paymentId),
           } as never);
         }
       }
@@ -611,6 +738,33 @@ export async function reviewPayment(
         data: { payment_id: paymentId },
       } as never);
 
+      // --- Approved email with PDF invoice attached ---
+      if (buyerEmail) {
+        let pdfBuffer: Buffer | undefined;
+        try {
+          pdfBuffer = await generateInvoicePdfBuffer({
+            invoiceNumber: emailSummary.invoiceNumber,
+            status: "approved",
+            createdAt: p.created_at ? String(p.created_at) : null,
+            reviewedAt: new Date().toISOString(),
+            billedToName: buyerName,
+            billedToEmail: buyerEmail,
+            description: emailDescription,
+            purpose: String(p.purpose || ""),
+            amount: Number(p.amount || 0),
+            currency: String(p.currency || "usd").toUpperCase(),
+            paymentMethod: methodName,
+            transactionId: String(p.transaction_id || "—"),
+            notes: p.notes ? String(p.notes) : null,
+            reviewNotes: notes || null,
+            siteName: "TaskFlow",
+          });
+        } catch (err) {
+          console.error("[Email] Failed generating invoice PDF:", (err as Error).message);
+        }
+        await sendPaymentApprovedEmail(buyerEmail, buyerName, emailSummary, pdfBuffer);
+      }
+
       return { success: true, message: "Payment approved and processed" };
     }
 
@@ -623,6 +777,10 @@ export async function reviewPayment(
         link: "/plans",
         data: { payment_id: paymentId },
       } as never);
+
+      if (buyerEmail) {
+        await sendPaymentRejectedEmail(buyerEmail, buyerName, emailSummary, notes || undefined);
+      }
     }
 
     return { success: true, message: action === "approve" ? "Payment approved" : "Payment rejected" };

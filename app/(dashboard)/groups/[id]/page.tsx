@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { getGroupById } from "@/lib/actions/groups";
 import { PageHeader } from "@/components/shared/page-header";
 import { GroupDetail } from "@/components/shared/group-detail";
+import { ItemGone } from "@/components/shared/item-gone";
 import { notFound } from "next/navigation";
 import type { UserRole } from "@/types/database";
 
@@ -15,7 +16,16 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ id
   if (isNaN(groupId)) notFound();
 
   const data = await getGroupById(groupId);
-  if (!data) notFound();
+  // Friendly fallback instead of 404 for deleted groups — notification
+  // links frequently point to groups that got removed.
+  if (!data) {
+    return (
+      <div>
+        <PageHeader title="Group" />
+        <ItemGone kind="group" backHref="/groups" backLabel="Back to groups" />
+      </div>
+    );
+  }
 
   const isAdmin = (["super_admin", "admin"] as UserRole[]).includes(user.role);
 

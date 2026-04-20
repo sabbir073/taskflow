@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
 import { useActivePopups } from "@/hooks/use-popups";
 
@@ -13,16 +13,18 @@ interface Props {
 // until the user opens a new tab.
 export function PopupDisplay({ target }: Props) {
   const { data: popups } = useActivePopups(target);
-  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
+  // Seed dismissed from sessionStorage lazily on first render so we don't
+  // need a setState-in-effect bootstrap. SSR returns an empty set.
+  const [dismissed, setDismissed] = useState<Set<number>>(() => {
+    if (typeof window === "undefined") return new Set();
     try {
       const stored = sessionStorage.getItem(`dismissed_popups_${target}`);
-      if (stored) setDismissed(new Set(JSON.parse(stored)));
-    } catch { /* */ }
-  }, [target]);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [mounted] = useState(() => typeof window !== "undefined");
 
   if (!mounted) return null;
 

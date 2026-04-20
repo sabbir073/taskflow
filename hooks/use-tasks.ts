@@ -35,7 +35,7 @@ export function useMyTasks(params: PaginationParams & { status?: string }) {
   return useQuery({
     queryKey: ["my-tasks", params],
     queryFn: () => getMyTasks(params),
-    refetchInterval: 10000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }

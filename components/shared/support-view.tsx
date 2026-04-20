@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Textarea, Label, Btn, Badge, FieldError } from "@/components/ui";
-import { Plus, MessageCircle, Clock, CheckCircle, XCircle, AlertCircle, Search, Lock } from "lucide-react";
+import { Plus, MessageCircle, CheckCircle, Search, Lock } from "lucide-react";
 import { useMyTicketAccess, useMyTickets, useCreateTicket, useAllTickets, useUpdateTicketStatus } from "@/hooks/use-tickets";
 import { EmptyState } from "./empty-state";
 import { formatRelativeTime, getInitials } from "@/lib/utils";

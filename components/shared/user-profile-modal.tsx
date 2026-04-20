@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge, Btn } from "@/components/ui";
-import { Trophy, Target, Flame, Calendar, X, Mail, Sparkles, Clock, AlertTriangle, CheckCircle } from "lucide-react";
+import { Trophy, Target, Flame, Calendar, X, Mail, Sparkles, Clock, AlertTriangle, CheckCircle, ShieldCheck, ShieldAlert } from "lucide-react";
 import { getUserById } from "@/lib/actions/users";
 import { ROLE_LABELS } from "@/lib/constants/roles";
 import { getInitials, formatDate } from "@/lib/utils";
@@ -33,12 +33,23 @@ export function UserProfileModal({ userId, onClose }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!userId) { setData(null); return; }
+    if (!userId) {
+      // Reset when the modal closes — a legitimate synchronous setState
+      // (the effect doesn't await anything first). Lint disabled inline
+      // because the cascading-render warning doesn't apply here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setData(null);
+      return;
+    }
+    let cancelled = false;
+     
     setLoading(true);
     getUserById(userId).then((d) => {
+      if (cancelled) return;
       setData(d as Record<string, unknown> | null);
       setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [userId]);
 
   if (!userId) return null;
@@ -62,6 +73,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
           const vs = data.stats as Record<string, unknown> | null;
           const vName = String(vu?.name || "Unknown");
           const vEmail = String(vu?.email || "");
+          const vEmailVerified = !!vu?.email_verified;
           const vRole = String(vp?.role || "user") as UserRole;
           const vStatus = String(vp?.status || "active") as UserStatus;
           const vPoints = Number(vp?.total_points || 0);
@@ -94,10 +106,15 @@ export function UserProfileModal({ userId, onClose }: Props) {
                   <p className="text-sm text-muted-foreground flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5" /> {vEmail}
                   </p>
-                  <div className="flex items-center gap-2 mt-2">
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Badge variant="primary">{ROLE_LABELS[vRole] || vRole}</Badge>
                     <Badge variant={STATUS_VARIANT[vStatus] || "default"}>{vStatus}</Badge>
                     {!vApproved && <Badge variant="warning">Pending Approval</Badge>}
+                    {vEmailVerified ? (
+                      <Badge variant="success"><ShieldCheck className="w-3 h-3 mr-1" /> Verified</Badge>
+                    ) : (
+                      <Badge variant="warning"><ShieldAlert className="w-3 h-3 mr-1" /> Not verified</Badge>
+                    )}
                   </div>
                 </div>
 

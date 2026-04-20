@@ -7,13 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, Input, Label
 import { Upload, X, ImagePlus, Users } from "lucide-react";
 import { useCreateGroup } from "@/hooks/use-groups";
 import { GROUP_CATEGORIES } from "@/lib/constants";
+import { RichTextEditor } from "@/components/shared/rich-text-editor";
 import type { GroupFormData } from "@/types";
 
 export function GroupForm() {
   const router = useRouter();
   const createGroup = useCreateGroup();
-  const { register, handleSubmit, formState: { errors } } = useForm<GroupFormData>({
-    defaultValues: { privacy: "public", max_members: 50, category: "Other" },
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<GroupFormData>({
+    defaultValues: { privacy: "public", max_members: 50, category: "Other", rules: "" },
   });
 
   const [avatarUrl, setAvatarUrl] = useState<string>("");
@@ -140,10 +141,10 @@ export function GroupForm() {
           </div>
           <div className="space-y-1.5">
             <Label>Group Rules</Label>
-            <Textarea
-              {...register("rules")}
-              placeholder={"Rules every member should follow.\n1. ...\n2. ..."}
-              rows={5}
+            <RichTextEditor
+              value={watch("rules") || ""}
+              onChange={(html) => setValue("rules", html)}
+              placeholder="Rules every member should follow..."
             />
             <p className="text-[11px] text-muted-foreground">Shown to every member on the group page.</p>
           </div>

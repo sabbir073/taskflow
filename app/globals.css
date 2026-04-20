@@ -167,6 +167,15 @@ label[for],
   to { width: 100%; }
 }
 
+/* Invoice printing — hide everything outside the document */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body * { visibility: hidden !important; }
+  #invoice-document, #invoice-document * { visibility: visible !important; }
+  #invoice-document { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border: 0 !important; }
+  aside, nav, header { display: none !important; }
+}
+
 /* Tiptap editor */
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

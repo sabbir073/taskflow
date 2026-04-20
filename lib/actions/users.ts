@@ -4,6 +4,11 @@ import { hash, compare } from "bcryptjs";
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { sendAccountApprovedEmail, sendVerificationEmail } from "@/lib/email";
+import { escapePgLikeOr } from "@/lib/utils";
+import { recordAudit } from "@/lib/audit";
+import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
+import { handleLeaderRemoval } from "@/lib/actions/groups";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 // ===== Get current user's profile =====
@@ -121,7 +126,15 @@ export async function changePassword(
 export async function getUsers(params: PaginationParams & {
   role?: string;
   status?: string;
+  approval?: "pending" | "approved";
 }): Promise<PaginatedResponse<Record<string, unknown>>> {
+  // Admin-only. Any caller without the role gets an empty result rather than
+  // raw data — the page route is also gated, but the action must self-guard
+  // so a direct client-side invocation can't enumerate users.
+  const session = await auth();
+  if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role)) {
+    return { data: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+  }
   const db = getServerClient();
   const page = params.page || 1;
   const pageSize = params.pageSize || 20;
@@ -129,12 +142,15 @@ export async function getUsers(params: PaginationParams & {
 
   let query = db
     .from("profiles")
-    .select("*, users!inner(id, name, email, image, created_at)", { count: "exact" });
+    .select("*, users!inner(id, name, email, email_verified, image, created_at)", { count: "exact" });
 
   if (params.role) query = query.eq("role", params.role);
   if (params.status) query = query.eq("status", params.status);
-  if (params.search) {
-    query = query.or(`users.name.ilike.%${params.search}%,users.email.ilike.%${params.search}%`);
+  if (params.approval === "pending") query = query.eq("is_approved", false);
+  if (params.approval === "approved") query = query.eq("is_approved", true);
+  const safeSearch = params.search ? escapePgLikeOr(params.search) : "";
+  if (safeSearch) {
+    query = query.or(`users.name.ilike.%${safeSearch}%,users.email.ilike.%${safeSearch}%`);
   }
 
   const sortBy = params.sortBy || "created_at";
@@ -159,6 +175,13 @@ export async function getUsers(params: PaginationParams & {
 
 // ===== Admin: Get single user =====
 export async function getUserById(userId: string) {
+  // Gated: admin viewing any user, or a user viewing themselves. This is
+  // used by the admin "user profile modal" and by the self profile page.
+  const session = await auth();
+  if (!session?.user?.id) return null;
+  const callerIsAdmin = ["super_admin", "admin"].includes(session.user.role);
+  if (!callerIsAdmin && session.user.id !== userId) return null;
+
   const db = getServerClient();
 
   const { data: user } = await db
@@ -241,10 +264,22 @@ export async function updateUserRole(
     }
 
     const db = getServerClient();
+
+    // Capture old role so the audit entry shows the before/after.
+    const { data: before } = await db.from("profiles").select("role").eq("user_id", userId).single();
+    const oldRole = before ? String((before as Record<string, unknown>).role || "") : null;
+
     await db
       .from("profiles")
       .update({ role } as never)
       .eq("user_id", userId);
+
+    // If they were demoted OUT of group_leader, transfer any groups they own
+    if (oldRole === "group_leader" && role !== "group_leader") {
+      await handleLeaderRemoval(userId, "leader role removed");
+    }
+
+    await recordAudit(db, session.user.id, "role_change", "user", userId, { old_role: oldRole, new_role: role });
 
     return { success: true, message: "Role updated" };
   } catch {
@@ -271,10 +306,22 @@ export async function updateUserStatus(
     }
 
     const db = getServerClient();
+
+    const { data: before } = await db.from("profiles").select("status").eq("user_id", userId).single();
+    const oldStatus = before ? String((before as Record<string, unknown>).status || "") : null;
+
     await db
       .from("profiles")
       .update({ status } as never)
       .eq("user_id", userId);
+
+    // If suspending/banning, transfer any groups they lead so they don't
+    // become unreachable to members.
+    if ((status === "suspended" || status === "banned") && oldStatus === "active") {
+      await handleLeaderRemoval(userId, `leader ${status}`);
+    }
+
+    await recordAudit(db, session.user.id, "status_change", "user", userId, { old_status: oldStatus, new_status: status });
 
     return { success: true, message: "Status updated" };
   } catch {
@@ -303,6 +350,11 @@ export async function deleteUser(userId: string): Promise<ApiResponse> {
       .update({ name: "Deleted User", email: `deleted_${userId}@taskflow.local`, image: null } as never)
       .eq("id", userId);
 
+    // Any group they led transfers to the next senior member (or is archived)
+    await handleLeaderRemoval(userId, "leader deleted");
+
+    await recordAudit(db, session.user.id, "delete_user", "user", userId);
+
     return { success: true, message: "User deleted" };
   } catch {
     return { success: false, error: "Failed to delete user" };
@@ -325,34 +377,28 @@ export async function assignPoints(
 
     const db = getServerClient();
 
-    const { data: profile } = await db
-      .from("profiles")
-      .select("total_points")
-      .eq("user_id", userId)
-      .single();
-
-    if (!profile) return { success: false, error: "User not found" };
-
-    const currentBalance = Number((profile as Record<string, unknown>).total_points);
-    const newBalance = currentBalance + amount;
-
-    if (newBalance < 0) {
-      return { success: false, error: `Cannot deduct more than user's balance (${currentBalance.toFixed(2)})` };
-    }
-
-    await db
-      .from("profiles")
-      .update({ total_points: newBalance } as never)
-      .eq("user_id", userId);
-
-    await db.from("points_history").insert({
-      user_id: userId,
-      amount,
-      action: amount > 0 ? "milestone" : "penalty",
-      description: reason || (amount > 0 ? "Points assigned by admin" : "Points deducted by admin"),
-      reference_type: "admin",
-      reference_id: session.user.id,
+    // Atomic adjust — the RPC updates the balance AND inserts points_history
+    // in one transaction. Rejects with insufficient_balance if the deduction
+    // would go below zero.
+    const { error: rpcErr } = await db.rpc("adjust_user_points", {
+      p_user_id: userId,
+      p_delta: amount,
+      p_action: amount > 0 ? "milestone" : "penalty",
+      p_description: reason || (amount > 0 ? "Points assigned by admin" : "Points deducted by admin"),
+      p_reference_type: "admin",
+      p_reference_id: session.user.id,
     } as never);
+
+    if (rpcErr) {
+      const msg = String((rpcErr as { message?: string }).message || "");
+      if (msg.includes("insufficient_balance")) {
+        return { success: false, error: "Cannot deduct more than user's current balance" };
+      }
+      if (msg.includes("profile_not_found")) {
+        return { success: false, error: "User not found" };
+      }
+      return { success: false, error: "Failed to adjust points" };
+    }
 
     // Notify the user
     const isAdd = amount > 0;
@@ -366,6 +412,8 @@ export async function assignPoints(
         : `${absAmount.toFixed(2)} points deducted by admin${reason ? `: ${reason}` : ""}`,
       data: { amount, reason, by_admin: session.user.id },
     } as never);
+
+    await recordAudit(db, session.user.id, "assign_points", "user", userId, { amount, reason: reason || null });
 
     return { success: true, message: `${isAdd ? "+" : "-"}${absAmount.toFixed(2)} points ${isAdd ? "assigned to" : "deducted from"} user` };
   } catch {
@@ -397,9 +445,72 @@ export async function approveUser(userId: string): Promise<ApiResponse> {
 
     const db = getServerClient();
     await db.from("profiles").update({ is_approved: true } as never).eq("user_id", userId);
+
+    // In-app notification + welcome-back email
+    const { data: u } = await db.from("users").select("email, name").eq("id", userId).single();
+    const row = u as Record<string, unknown> | null;
+    const email = String(row?.email || "");
+    const name = String(row?.name || "there");
+
+    await db.from("notifications").insert({
+      user_id: userId,
+      type: "system",
+      title: "Account Approved",
+      message: "Your account has been approved. You can now sign in and use all features.",
+      link: "/dashboard",
+    } as never);
+
+    if (email) await sendAccountApprovedEmail(email, name);
+
+    await recordAudit(db, session.user.id, "approve_user", "user", userId);
+
     return { success: true, message: "User approved" };
   } catch {
     return { success: false, error: "Failed to approve user" };
+  }
+}
+
+// ===== Resend verification email (self-service from profile page) =====
+export async function resendVerificationEmail(): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+    // 3 sends/hour — plenty for typos, prevents spamming an inbox
+    const rate = checkRate("resend-verification", session.user.id, 3, 60 * 60 * 1000);
+    if (!rate.allowed) {
+      return { success: false, error: `Please wait ${formatRetryAfter(rate.retryAfterSec)} before requesting another verification email` };
+    }
+
+    const db = getServerClient();
+
+    const { data: u } = await db
+      .from("users")
+      .select("email, name, email_verified")
+      .eq("id", session.user.id)
+      .single();
+    const row = u as Record<string, unknown> | null;
+    if (!row) return { success: false, error: "User not found" };
+    if (row.email_verified) return { success: false, error: "Your email is already verified" };
+
+    const email = String(row.email || "");
+    const name = String(row.name || "there");
+
+    const token = crypto.randomUUID();
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
+
+    // Clear any existing open tokens for this identifier so only the latest works
+    await db.from("verification_tokens").delete().eq("identifier", email);
+    await db.from("verification_tokens").insert({
+      identifier: email,
+      token,
+      expires: expires.toISOString(),
+    } as never);
+
+    await sendVerificationEmail(email, token, name);
+    return { success: true, message: "Verification email sent — check your inbox" };
+  } catch {
+    return { success: false, error: "Failed to send verification email" };
   }
 }
 
@@ -412,6 +523,8 @@ export async function rejectUser(userId: string): Promise<ApiResponse> {
 
     const db = getServerClient();
     await db.from("profiles").update({ status: "banned", is_approved: false } as never).eq("user_id", userId);
+    await handleLeaderRemoval(userId, "leader rejected");
+    await recordAudit(db, session.user.id, "reject_user", "user", userId);
     return { success: true, message: "User rejected" };
   } catch {
     return { success: false, error: "Failed to reject user" };

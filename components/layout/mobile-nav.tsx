@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import { Btn } from "@/components/ui";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
-  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon,
+  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
@@ -22,6 +22,7 @@ const navItems = [
   { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" as Permission },
+  { label: "Broadcast", href: "/broadcast", icon: Send, permission: "manage_users" as Permission },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" as Permission },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" as Permission },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" as Permission },
@@ -30,6 +31,7 @@ const navItems = [
   { label: "Support", href: "/support", icon: MessageCircle },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" as Permission },
+  { label: "Audit Log", href: "/audit", icon: History, permission: "system_settings" as Permission },
   { label: "Landing Editor", href: "/landing-editor", icon: Globe, permission: "landing_page_edit" as Permission },
 ];
 

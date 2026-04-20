@@ -8,7 +8,7 @@ export function useActiveNotices() {
   return useQuery({
     queryKey: ["active-notices"],
     queryFn: getActiveNotices,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }
@@ -17,7 +17,7 @@ export function useAllNotices() {
   return useQuery({
     queryKey: ["all-notices"],
     queryFn: getAllNotices,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }

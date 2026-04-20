@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Eye, EyeOff, Mail, Lock, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, Loader2, Clock, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
 const loginSchema = z.object({
@@ -25,13 +25,9 @@ export function LoginForm() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(
-    errorParam === "AccountBlocked"
-      ? "Your account has been banned. Contact support."
-      : errorParam === "PendingApproval"
-        ? "Your account is pending admin approval. Please wait for activation."
-        : ""
-  );
+  const [error, setError] = useState("");
+  const isPending = errorParam === "PendingApproval";
+  const isBanned = errorParam === "AccountBlocked";
 
   const {
     register,
@@ -71,6 +67,41 @@ export function LoginForm() {
         <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
         <p className="text-sm text-muted-foreground mt-1">Sign in to your account to continue</p>
       </div>
+
+      {/* Pending approval banner */}
+      {isPending && (
+        <div className="mx-8 mt-6 rounded-xl border border-warning/30 bg-gradient-to-br from-warning/10 via-warning/5 to-transparent p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-warning/15 flex items-center justify-center shrink-0">
+              <Clock className="w-4.5 h-4.5 text-warning" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Your account is awaiting approval</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Thanks for signing up! An admin needs to review and approve your account before you can access the dashboard.
+                You&apos;ll receive an email as soon as you&apos;re approved.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Banned banner */}
+      {isBanned && (
+        <div className="mx-8 mt-6 rounded-xl border border-error/30 bg-gradient-to-br from-error/10 via-error/5 to-transparent p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-error/15 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-4.5 h-4.5 text-error" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Account blocked</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Your account has been banned. If you believe this is a mistake, please contact support.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Form */}
       <div className="px-8 py-6">

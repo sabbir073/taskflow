@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, Btn, Input, Badge } from "@/components/ui";
+import { Card, CardContent, Btn, Input } from "@/components/ui";
 import { CheckCircle, XCircle, ExternalLink, Image as ImageIcon, Inbox } from "lucide-react";
 import { usePendingReviews, useReviewAssignment } from "@/hooks/use-tasks";
 import { EmptyState } from "./empty-state";

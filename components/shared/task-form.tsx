@@ -9,8 +9,9 @@ import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { RichTextEditor } from "@/components/shared/rich-text-editor";
 import { getMyBalance } from "@/lib/actions/users";
 import { useAssignableGroups } from "@/hooks/use-groups";
+import { taskTypeNeedsAiPrompt } from "@/lib/content-task-types";
 import type { TaskFormData } from "@/types";
-import { Coins, AlertCircle, Upload, X, Link2, Plus, Mail } from "lucide-react";
+import { Coins, AlertCircle, Upload, X, Link2, Plus, Mail, Sparkles } from "lucide-react";
 
 export function TaskForm() {
   const router = useRouter();
@@ -73,6 +74,7 @@ export function TaskForm() {
 
   const selectedTaskType = taskTypes?.find((t) => (t.id as number) === watchTaskType);
   const requiredFields = selectedTaskType ? (selectedTaskType.required_fields as Array<{ name: string; label: string; type: string; placeholder?: string }>) : [];
+  const showAiPrompt = taskTypeNeedsAiPrompt(selectedTaskType?.slug as string | undefined);
   const effectiveBudget = isIndividual ? (watchPerCompletion || 0) : (watchBudget || 0);
   const maxCompletions = isIndividual ? 1 : (watchPerCompletion > 0 ? Math.floor(watchBudget / watchPerCompletion) : 0);
   const insufficientBalance = effectiveBudget > balance;
@@ -87,6 +89,8 @@ export function TaskForm() {
       ...data,
       images: taskImages,
       urls: finalUrls,
+      // Only send ai_prompt for content-generating task types
+      ai_prompt: showAiPrompt ? (data.ai_prompt?.trim() || null) : null,
       // Individual: full budget goes to the one assigned user
       point_budget: data.target_type === "individual" ? data.points_per_completion : data.point_budget,
     };
@@ -160,6 +164,31 @@ export function TaskForm() {
           )}
         </CardContent>
       </Card>
+
+      {/* AI Prompt — shown only for content-generating task types */}
+      {showAiPrompt && (
+        <Card className="border-primary/20 bg-primary/[0.02]">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" /> AI Prompt
+              <span className="ml-1 text-[10px] font-normal bg-primary/10 text-primary px-2 py-0.5 rounded-full uppercase tracking-wider">Optional</span>
+            </CardTitle>
+            <CardDescription>
+              Give users a ready-to-use prompt they can paste into ChatGPT or any AI tool to generate the required content for this task.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              {...register("ai_prompt")}
+              rows={4}
+              placeholder={"e.g. Write a friendly 2-sentence comment praising this product's ease of use without sounding like a sales pitch. Keep it natural and under 200 characters."}
+            />
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Users will see a &ldquo;Copy prompt&rdquo; button on the task page — they paste it into ChatGPT / Claude / any AI tool to generate the content, then submit it as proof.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Images & URLs (optional) */}
       <Card>

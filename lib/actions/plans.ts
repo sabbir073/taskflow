@@ -3,7 +3,9 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
-import { computeExpiresAt } from "@/lib/currency";
+import { computeExpiresAt, periodMultiplier } from "@/lib/currency";
+import { computeRemainingQuota } from "@/lib/subscription-check";
+import { recordAudit } from "@/lib/audit";
 import type { ApiResponse } from "@/types";
 
 export async function getPlans() {
@@ -35,19 +37,20 @@ export async function getMySubscription() {
 export async function getMyQuotaUsage(): Promise<{
   tasksUsed: number; tasksLimit: number | null;
   groupsUsed: number; groupsLimit: number | null;
+  carryOverTasks: number; carryOverGroups: number;
   startsAt: string | null; expiresAt: string | null;
   planName: string | null; periodType: string | null;
   isExpired: boolean;
 }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { tasksUsed: 0, tasksLimit: 0, groupsUsed: 0, groupsLimit: 0, startsAt: null, expiresAt: null, planName: null, periodType: null, isExpired: false };
+    return { tasksUsed: 0, tasksLimit: 0, groupsUsed: 0, groupsLimit: 0, carryOverTasks: 0, carryOverGroups: 0, startsAt: null, expiresAt: null, planName: null, periodType: null, isExpired: false };
   }
 
   const db = getServerClient();
   const { data: subs } = await db
     .from("user_subscriptions")
-    .select("starts_at, expires_at, period_type, plan_id, plans!inner(name, max_tasks, max_groups)")
+    .select("starts_at, expires_at, period_type, plan_id, carry_over_tasks, carry_over_groups, plans!inner(name, max_tasks, max_groups)")
     .eq("user_id", session.user.id)
     .eq("status", "active")
     .order("created_at", { ascending: false })
@@ -55,12 +58,17 @@ export async function getMyQuotaUsage(): Promise<{
 
   const sub = ((subs || []) as Record<string, unknown>[])[0] || null;
   if (!sub) {
-    return { tasksUsed: 0, tasksLimit: 0, groupsUsed: 0, groupsLimit: 0, startsAt: null, expiresAt: null, planName: null, periodType: null, isExpired: false };
+    return { tasksUsed: 0, tasksLimit: 0, groupsUsed: 0, groupsLimit: 0, carryOverTasks: 0, carryOverGroups: 0, startsAt: null, expiresAt: null, planName: null, periodType: null, isExpired: false };
   }
 
   const plan = sub.plans as Record<string, unknown> | undefined;
-  const tasksLimit = plan?.max_tasks == null ? null : Number(plan.max_tasks);
-  const groupsLimit = plan?.max_groups == null ? null : Number(plan.max_groups);
+  const mult = periodMultiplier((sub.period_type as string | null) || null) ?? 1;
+  const carryOverTasks = Number(sub.carry_over_tasks) || 0;
+  const carryOverGroups = Number(sub.carry_over_groups) || 0;
+  // Effective (displayed) limit = base * period multiplier + carried-over
+  // remainder from the previous subscription.
+  const tasksLimit = plan?.max_tasks == null ? null : Number(plan.max_tasks) * mult + carryOverTasks;
+  const groupsLimit = plan?.max_groups == null ? null : Number(plan.max_groups) * mult + carryOverGroups;
   const startsAt = sub.starts_at ? String(sub.starts_at) : null;
   const expiresAt = sub.expires_at ? String(sub.expires_at) : null;
   const isExpired = expiresAt ? new Date(expiresAt).getTime() <= Date.now() : false;
@@ -76,6 +84,8 @@ export async function getMyQuotaUsage(): Promise<{
     tasksLimit,
     groupsUsed: groupsUsed || 0,
     groupsLimit,
+    carryOverTasks,
+    carryOverGroups,
     startsAt,
     expiresAt,
     planName: plan ? String(plan.name || "") : null,
@@ -146,7 +156,8 @@ export async function subscribe(planId: number): Promise<ApiResponse> {
 
     const expiresAt = computeExpiresAt(String(p.period || "monthly"));
 
-    // Deactivate previous subscriptions
+    // Capture remaining quota from current active sub, then deactivate it.
+    const remaining = await computeRemainingQuota(db, session.user.id);
     await db.from("user_subscriptions").update({ status: "cancelled" } as never)
       .eq("user_id", session.user.id).eq("status", "active");
 
@@ -158,6 +169,8 @@ export async function subscribe(planId: number): Promise<ApiResponse> {
       starts_at: new Date().toISOString(),
       expires_at: expiresAt,
       status: "active",
+      carry_over_tasks: remaining.tasks,
+      carry_over_groups: remaining.groups,
     } as never);
 
     return { success: true, message: `Subscribed to ${p.name} plan` };
@@ -222,11 +235,19 @@ export async function createPlan(formData: z.infer<typeof planSchema>): Promise<
     const validated = planSchema.parse(formData);
     const db = getServerClient();
 
-    const { error } = await db.from("plans").insert({
-      ...validated,
-      features: validated.features, // JSONB column — pass array directly, no JSON.stringify
-    } as never);
+    const { data: inserted, error } = await db
+      .from("plans")
+      .insert({
+        ...validated,
+        features: validated.features, // JSONB column — pass array directly, no JSON.stringify
+      } as never)
+      .select("id")
+      .single();
     if (error) return { success: false, error: "Failed to create plan" };
+
+    const newId = inserted ? String((inserted as Record<string, unknown>).id ?? "") : null;
+    await recordAudit(db, session.user.id, "create_plan", "plan", newId, { name: validated.name });
+
     return { success: true, message: "Plan created" };
   } catch (err) {
     if (err instanceof z.ZodError) return { success: false, error: err.issues[0]?.message || "Validation error" };
@@ -246,6 +267,9 @@ export async function updatePlan(planId: number, formData: Partial<z.infer<typeo
 
     const { error } = await db.from("plans").update(update as never).eq("id", planId);
     if (error) return { success: false, error: "Failed to update plan" };
+
+    await recordAudit(db, session.user.id, "update_plan", "plan", String(planId), { fields: Object.keys(update) });
+
     return { success: true, message: "Plan updated" };
   } catch {
     return { success: false, error: "Failed to update plan" };
@@ -270,6 +294,9 @@ export async function deletePlan(planId: number): Promise<ApiResponse> {
 
     const { error } = await db.from("plans").delete().eq("id", planId);
     if (error) return { success: false, error: "Failed to delete plan" };
+
+    await recordAudit(db, session.user.id, "delete_plan", "plan", String(planId));
+
     return { success: true, message: "Plan deleted" };
   } catch {
     return { success: false, error: "Failed to delete plan" };
@@ -299,7 +326,8 @@ export async function adminAssignSubscription(
     const periodType = period || String(p.period || "monthly");
     const expiresAt = computeExpiresAt(periodType);
 
-    // Cancel existing active subs
+    // Capture remaining quota from current active sub, then cancel it.
+    const remaining = await computeRemainingQuota(db, userId);
     await db.from("user_subscriptions").update({ status: "cancelled" } as never)
       .eq("user_id", userId).eq("status", "active");
 
@@ -310,29 +338,25 @@ export async function adminAssignSubscription(
       starts_at: new Date().toISOString(),
       expires_at: expiresAt,
       status: "active",
+      carry_over_tasks: remaining.tasks,
+      carry_over_groups: remaining.groups,
       notified_expiring_7d: false,
       notified_expiring_1d: false,
       notified_expired: false,
     } as never);
 
-    // Credit the plan's included credits to the user's wallet
-    const includedCredits = Number(p.included_credits || 0);
+    // Credit the plan's included credits to the user's wallet, scaled by
+    // period so a yearly assignment grants 12× the monthly credits.
+    const mult = periodMultiplier(periodType) ?? 1;
+    const includedCredits = Number(p.included_credits || 0) * mult;
     if (includedCredits > 0) {
-      const { data: profile } = await db
-        .from("profiles")
-        .select("total_points")
-        .eq("user_id", userId)
-        .single();
-      const balance = profile ? Number((profile as Record<string, unknown>).total_points || 0) : 0;
-      await db.from("profiles").update({ total_points: balance + includedCredits } as never).eq("user_id", userId);
-
-      await db.from("points_history").insert({
-        user_id: userId,
-        amount: includedCredits,
-        action: "milestone",
-        description: `Plan credits from "${String(p.name || "")}" (assigned by admin)`,
-        reference_type: "admin",
-        reference_id: session.user.id,
+      await db.rpc("adjust_user_points", {
+        p_user_id: userId,
+        p_delta: includedCredits,
+        p_action: "milestone",
+        p_description: `Plan credits from "${String(p.name || "")}" (assigned by admin)`,
+        p_reference_type: "admin",
+        p_reference_id: session.user.id,
       } as never);
     }
 
@@ -346,6 +370,13 @@ export async function adminAssignSubscription(
       link: "/dashboard",
       data: { plan_id: planId, period: periodType, credits: includedCredits },
     } as never);
+
+    await recordAudit(db, session.user.id, "assign_plan", "user", userId, {
+      plan_id: planId,
+      plan_name: String(p.name || ""),
+      period: periodType,
+      credits: includedCredits,
+    });
 
     return { success: true, message: `${p.name} plan assigned to user` };
   } catch {

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, Input, Btn, Badge } from "@/components/ui";
-import { Search, Users, Lock, Globe, Plus } from "lucide-react";
+import { Search, Users, Lock, Globe } from "lucide-react";
 import { useMyGroups, useAllGroups, useApproveGroup, useRejectGroup, useDeleteGroup } from "@/hooks/use-groups";
 import { EmptyState } from "./empty-state";
 import { getInitials, formatDate } from "@/lib/utils";

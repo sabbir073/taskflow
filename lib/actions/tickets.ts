@@ -5,8 +5,6 @@ import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
-type DB = ReturnType<typeof getServerClient>;
-
 function isAdmin(role: string | undefined): boolean {
   return ["super_admin", "admin"].includes(role || "");
 }

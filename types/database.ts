@@ -140,6 +140,7 @@ export interface Task {
   recurring_type: RecurringType | null;
   recurring_end_date: string | null;
   max_completions: number | null;
+  ai_prompt: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -297,8 +298,22 @@ export interface UserSubscription {
   id: number;
   user_id: string;
   plan_id: number;
+  period_type: "monthly" | "half_yearly" | "yearly" | "forever" | null;
   starts_at: string;
   expires_at: string | null;
   status: string;
+  carry_over_tasks: number;
+  carry_over_groups: number;
+  created_at: string;
+}
+
+// Admin audit log — recorded on every privileged mutation for forensics.
+export interface AdminAuditLog {
+  id: number;
+  actor_id: string | null;
+  action: string;
+  target_type: "user" | "payment" | "task" | "group" | "plan" | "subscription" | null;
+  target_id: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }

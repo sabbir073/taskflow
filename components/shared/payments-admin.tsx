@@ -4,19 +4,23 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Textarea, Select, Label, Btn, Badge, FieldError } from "@/components/ui";
 import {
-  Plus, Edit2, Trash2, Upload, X, Save, Eye, EyeOff, CheckCircle, XCircle, Clock, Wallet, Package, ExternalLink, Sparkles,
+  Plus, Edit2, Trash2, Upload, X, Save, Eye, EyeOff, CheckCircle, XCircle, Clock, Wallet, Package, ExternalLink, Sparkles, Download, Loader2,
 } from "lucide-react";
+import { exportPaymentsCsv } from "@/lib/actions/exports";
+import { toast } from "sonner";
 import {
   useAllPaymentMethods, useCreatePaymentMethod, useUpdatePaymentMethod, useDeletePaymentMethod,
   useAllPointPackages, useCreatePointPackage, useUpdatePointPackage, useDeletePointPackage,
   useAllPayments, useReviewPayment,
 } from "@/hooks/use-payments";
 import { useAllPlans, useCreatePlan, useUpdatePlan, useDeletePlan } from "@/hooks/use-plans";
+import { useAllInvoices, useUpdateInvoiceStatus } from "@/hooks/use-invoices";
 import { EmptyState } from "./empty-state";
 import { ConfirmDialog } from "./confirm-dialog";
-import { getInitials, formatRelativeTime } from "@/lib/utils";
+import { getInitials, formatRelativeTime, formatDate } from "@/lib/utils";
+import { FileText } from "lucide-react";
 
-type Tab = "plans" | "methods" | "packages" | "submissions";
+type Tab = "plans" | "methods" | "packages" | "submissions" | "invoices";
 
 export function PaymentsAdmin() {
   const [tab, setTab] = useState<Tab>("plans");
@@ -27,11 +31,14 @@ export function PaymentsAdmin() {
   const packagesCount = useAllPointPackages();
   const submissionsCount = useAllPayments({ page: 1, pageSize: 1, status: "pending" });
 
+  const invoicesCount = useAllInvoices({ page: 1, pageSize: 1 });
+
   const tabs = [
     { key: "plans" as const, label: "Plans", count: plansCount.data?.length ?? 0 },
     { key: "methods" as const, label: "Payment Methods", count: methodsCount.data?.length ?? 0 },
     { key: "packages" as const, label: "Point Packages", count: packagesCount.data?.length ?? 0 },
     { key: "submissions" as const, label: "Review Submissions", count: submissionsCount.data?.total ?? 0 },
+    { key: "invoices" as const, label: "Invoices", count: invoicesCount.data?.total ?? 0 },
   ];
 
   return (
@@ -56,6 +63,7 @@ export function PaymentsAdmin() {
       {tab === "methods" && <MethodsTab />}
       {tab === "packages" && <PackagesTab />}
       {tab === "submissions" && <SubmissionsTab />}
+      {tab === "invoices" && <InvoicesTab />}
     </div>
   );
 }
@@ -1010,6 +1018,219 @@ function SubmissionsTab() {
           <div className="flex gap-2">
             <Btn variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Btn>
             <Btn variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// INVOICES TAB (admin)
+// ============================================================================
+function InvoicesTab() {
+  const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [editTarget, setEditTarget] = useState<{ id: number; current: string } | null>(null);
+  const [editStatus, setEditStatus] = useState<"pending" | "approved" | "rejected">("approved");
+  const [editNotes, setEditNotes] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await exportPaymentsCsv({ status: statusFilter || undefined });
+      if (!res.success || !res.csv) {
+        toast.error(res.error || "Export failed");
+      } else {
+        const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = res.filename || "payments.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Exported");
+      }
+    } catch {
+      toast.error("Export failed");
+    }
+    setExporting(false);
+  }
+
+  const { data, isLoading } = useAllInvoices({
+    page, pageSize: 20,
+    status: statusFilter || undefined,
+    search: search.trim() || undefined,
+    from: from || undefined,
+    to: to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000).toISOString() : undefined,
+  });
+  const updateStatus = useUpdateInvoiceStatus();
+
+  const items = data?.data || [];
+  const totalPages = data?.totalPages || 1;
+
+  function startEdit(id: number, current: string) {
+    setEditTarget({ id, current });
+    setEditStatus((current === "pending" || current === "approved" || current === "rejected") ? current : "pending");
+    setEditNotes("");
+  }
+
+  async function handleSave() {
+    if (!editTarget) return;
+    const r = await updateStatus.mutateAsync({ paymentId: editTarget.id, status: editStatus, notes: editNotes.trim() || undefined });
+    if (r.success) { setEditTarget(null); setEditNotes(""); }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div className="relative sm:col-span-2">
+          <FileText className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search invoice # or transaction id..."
+            className="pl-11"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
+        <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
+          <option value="">All statuses</option>
+          <option value="pending">Awaiting Review</option>
+          <option value="approved">Paid</option>
+          <option value="rejected">Rejected</option>
+        </Select>
+        <div className="flex gap-2">
+          <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} placeholder="From" />
+          <Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} placeholder="To" />
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Btn variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+          {exporting ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Download className="w-3.5 h-3.5 mr-1" />}
+          Export CSV
+        </Btn>
+      </div>
+
+      {isLoading ? (
+        <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">Loading...</CardContent></Card>
+      ) : items.length === 0 ? (
+        <EmptyState icon={FileText} title="No invoices" description="No invoices match this filter." />
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Invoice</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">User</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Date</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Purpose</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Amount</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Status</th>
+                    <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((inv) => {
+                    const id = inv.id as number;
+                    const invNum = String(inv.invoice_number || `#${id}`);
+                    const user = inv.users as Record<string, unknown> | undefined;
+                    const name = String(user?.name || "Unknown");
+                    const email = String(user?.email || "");
+                    const amount = Number(inv.amount || 0);
+                    const currency = String(inv.currency || "usd").toUpperCase();
+                    const status = String(inv.status || "pending");
+
+                    const statusLabel = status === "approved" ? "Paid" : status === "rejected" ? "Rejected" : "Awaiting";
+                    const statusVariant: "success" | "warning" | "error" = status === "approved" ? "success" : status === "rejected" ? "error" : "warning";
+
+                    return (
+                      <tr key={id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <Link href={`/billing/${id}`} className="font-mono text-xs font-semibold hover:text-primary">{invNum}</Link>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">TX: {String(inv.transaction_id || "-").slice(0, 24)}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-[10px] font-bold text-primary">
+                              {getInitials(name)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium truncate max-w-[140px]">{name}</p>
+                              <p className="text-[10px] text-muted-foreground truncate max-w-[140px]">{email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{inv.created_at ? formatDate(String(inv.created_at)) : "-"}</td>
+                        <td className="px-4 py-3 text-xs capitalize">{String(inv.purpose || "").replace("_", " ")}</td>
+                        <td className="px-4 py-3 text-xs font-semibold">{amount.toFixed(2)} {currency}</td>
+                        <td className="px-4 py-3"><Badge variant={statusVariant}>{statusLabel}</Badge></td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex gap-1">
+                            <Link href={`/billing/${id}`}>
+                              <Btn variant="ghost" size="sm">View</Btn>
+                            </Link>
+                            <Btn variant="outline" size="sm" onClick={() => startEdit(id, status)}>
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex justify-between items-center pt-4">
+          <p className="text-sm text-muted-foreground">Page {page} of {totalPages} ({data?.total ?? 0} invoices)</p>
+          <div className="flex gap-2">
+            <Btn variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Btn>
+            <Btn variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Edit status modal */}
+      {editTarget && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4" onClick={() => setEditTarget(null)}>
+          <div className="bg-card rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><FileText className="w-5 h-5 text-primary" /> Change Invoice Status</h3>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>New Status</Label>
+                <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value as "pending" | "approved" | "rejected")}>
+                  <option value="pending">Awaiting Review</option>
+                  <option value="approved">Paid</option>
+                  <option value="rejected">Rejected</option>
+                </Select>
+                {editTarget.current === "pending" && editStatus === "approved" && (
+                  <p className="text-[11px] text-success">Approving will create the subscription / credit points.</p>
+                )}
+                {editTarget.current !== "pending" && (
+                  <p className="text-[11px] text-warning">This invoice was already reviewed — status change won&apos;t re-trigger subscription or wallet effects.</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Notes (optional)</Label>
+                <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} placeholder="Reason for the change..." />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <Btn variant="outline" onClick={() => setEditTarget(null)}>Cancel</Btn>
+                <Btn onClick={handleSave} isLoading={updateStatus.isPending}>Save</Btn>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -4,12 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Btn } from "@/components/ui";
 import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon,
+  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
@@ -31,6 +30,7 @@ const navItems: NavItem[] = [
   { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" },
+  { label: "Broadcast", href: "/broadcast", icon: Send, permission: "manage_users" },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" },
@@ -39,6 +39,7 @@ const navItems: NavItem[] = [
   { label: "Support", href: "/support", icon: MessageCircle },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings, permission: "system_settings" },
+  { label: "Audit Log", href: "/audit", icon: History, permission: "system_settings" },
   { label: "Landing Editor", href: "/landing-editor", icon: Globe, permission: "landing_page_edit" },
 ];
 

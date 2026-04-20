@@ -8,8 +8,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label
 import { useTaskTypes } from "@/hooks/use-tasks";
 import { updateTask } from "@/lib/actions/tasks";
 import { toast } from "sonner";
-import { Upload, X, Link2, Plus } from "lucide-react";
+import { Upload, X, Link2, Plus, Sparkles } from "lucide-react";
 import { RichTextEditor } from "@/components/shared/rich-text-editor";
+import { taskTypeNeedsAiPrompt } from "@/lib/content-task-types";
 
 interface Props {
   task: Record<string, unknown>;
@@ -19,6 +20,7 @@ interface Props {
 type FormShape = {
   title: string;
   description: string;
+  ai_prompt: string;
   proof_type: string;
   priority: string;
   deadline: string;
@@ -48,6 +50,7 @@ export function TaskEditForm({ task, taskId }: Props) {
     defaultValues: {
       title: String(task.title || ""),
       description: String(task.description || ""),
+      ai_prompt: String(task.ai_prompt || ""),
       proof_type: String(task.proof_type || "both"),
       priority: String(task.priority || "medium"),
       deadline: task.deadline ? String(task.deadline).slice(0, 16) : "",
@@ -56,6 +59,8 @@ export function TaskEditForm({ task, taskId }: Props) {
       task_data: (task.task_data as Record<string, string>) || {},
     },
   });
+
+  const showAiPrompt = taskTypeNeedsAiPrompt(selectedTaskType?.slug as string | undefined);
 
   const watchBudget = watch("point_budget");
   const watchPerCompletion = watch("points_per_completion");
@@ -101,6 +106,7 @@ export function TaskEditForm({ task, taskId }: Props) {
     const result = await updateTask(taskId, {
       title: data.title,
       description: data.description,
+      ai_prompt: showAiPrompt ? (data.ai_prompt?.trim() || null) : null,
       proof_type: data.proof_type,
       priority: data.priority,
       deadline: data.deadline || null,
@@ -165,6 +171,28 @@ export function TaskEditForm({ task, taskId }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* AI Prompt — only for content-generating task types */}
+      {showAiPrompt && (
+        <Card className="border-primary/20 bg-primary/[0.02]">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" /> AI Prompt
+              <span className="ml-1 text-[10px] font-normal bg-primary/10 text-primary px-2 py-0.5 rounded-full uppercase tracking-wider">Optional</span>
+            </CardTitle>
+            <CardDescription>
+              A ready-to-use prompt users can paste into ChatGPT / Claude to generate the content for this task.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              {...register("ai_prompt")}
+              rows={4}
+              placeholder={"e.g. Write a friendly 2-sentence comment praising this product's ease of use. Keep it natural and under 200 characters."}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Attachments */}
       <Card>

@@ -87,10 +87,10 @@ export function useSubmitPayment() {
   });
 }
 export function useMyPayments(params?: PaginationParams) {
-  return useQuery({ queryKey: ["my-payments", params], queryFn: () => getMyPayments(params), refetchInterval: 15000 });
+  return useQuery({ queryKey: ["my-payments", params], queryFn: () => getMyPayments(params), refetchInterval: 60000 });
 }
 export function useAllPayments(params?: PaginationParams & { status?: string; purpose?: string }) {
-  return useQuery({ queryKey: ["all-payments", params], queryFn: () => getAllPayments(params), refetchInterval: 10000 });
+  return useQuery({ queryKey: ["all-payments", params], queryFn: () => getAllPayments(params), refetchInterval: 60000 });
 }
 export function useReviewPayment() {
   const qc = useQueryClient();

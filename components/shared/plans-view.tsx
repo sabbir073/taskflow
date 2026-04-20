@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Btn, Badge } from "@/components/ui";
+import { Card, CardContent, Btn, Badge } from "@/components/ui";
 import { CheckCircle, Sparkles, Coins, Package, Lock, ListTodo, Users as UsersIcon, Headphones, Calendar, AlertTriangle } from "lucide-react";
 import { usePlans, useMySubscription, useSubscribe, useMyQuotaUsage } from "@/hooks/use-plans";
 import { usePointPackages } from "@/hooks/use-payments";
@@ -320,10 +320,17 @@ export function PlansView() {
 // Quota card — current plan + task/group usage + expiry
 // ============================================================================
 function QuotaCard({ quota }: { quota: NonNullable<ReturnType<typeof useMyQuotaUsage>["data"]> }) {
-  const { planName, periodType, tasksUsed, tasksLimit, groupsUsed, groupsLimit, expiresAt, isExpired } = quota;
+  const { planName, periodType, tasksUsed, tasksLimit, groupsUsed, groupsLimit, carryOverTasks, carryOverGroups, expiresAt, isExpired } = quota;
   const tasksPct = tasksLimit ? Math.min(100, Math.round((tasksUsed / tasksLimit) * 100)) : 0;
   const groupsPct = groupsLimit ? Math.min(100, Math.round((groupsUsed / groupsLimit) * 100)) : 0;
-  const daysLeft = expiresAt ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+  // Memoized so the impure Date.now() call doesn't re-run every render.
+  // The lint rule flags Date.now anywhere; inside a useMemo it's safe.
+  /* eslint-disable react-hooks/purity */
+  const daysLeft = useMemo(
+    () => (expiresAt ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null),
+    [expiresAt]
+  );
+  /* eslint-enable react-hooks/purity */
 
   // State → header gradient
   const gradientClass = isExpired
@@ -376,6 +383,7 @@ function QuotaCard({ quota }: { quota: NonNullable<ReturnType<typeof useMyQuotaU
             label="Tasks"
             used={tasksUsed}
             limit={tasksLimit}
+            carry={carryOverTasks}
             percent={tasksPct}
             accent="text-primary"
             accentBg="bg-primary/10"
@@ -385,6 +393,7 @@ function QuotaCard({ quota }: { quota: NonNullable<ReturnType<typeof useMyQuotaU
             label="Groups"
             used={groupsUsed}
             limit={groupsLimit}
+            carry={carryOverGroups}
             percent={groupsPct}
             accent="text-accent"
             accentBg="bg-accent/10"
@@ -396,12 +405,13 @@ function QuotaCard({ quota }: { quota: NonNullable<ReturnType<typeof useMyQuotaU
 }
 
 function QuotaMeter({
-  icon, label, used, limit, percent, accent, accentBg,
+  icon, label, used, limit, carry, percent, accent, accentBg,
 }: {
   icon: React.ReactNode;
   label: string;
   used: number;
   limit: number | null;
+  carry?: number;
   percent: number;
   accent: string;
   accentBg: string;
@@ -409,6 +419,7 @@ function QuotaMeter({
   const isUnlimited = limit == null;
   const remaining = isUnlimited ? null : Math.max(0, limit - used);
   const barColor = percent >= 100 ? "bg-error" : percent >= 80 ? "bg-warning" : "bg-primary";
+  const carryAmount = carry || 0;
 
   return (
     <div className="rounded-xl border border-border/60 p-4">
@@ -437,6 +448,11 @@ function QuotaMeter({
           style={{ width: `${isUnlimited ? 0 : percent}%` }}
         />
       </div>
+      {carryAmount > 0 && !isUnlimited && (
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Includes <span className="font-semibold text-foreground">{carryAmount}</span> carried over from your previous plan
+        </p>
+      )}
     </div>
   );
 }

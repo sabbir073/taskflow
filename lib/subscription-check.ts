@@ -1,4 +1,6 @@
 import type { getServerClient } from "@/lib/db/supabase";
+import { periodMultiplier } from "@/lib/currency";
+import { sendSubscriptionExpiringEmail, sendSubscriptionExpiredEmail } from "@/lib/email";
 
 type DB = ReturnType<typeof getServerClient>;
 
@@ -51,7 +53,7 @@ export async function getQuota(
   // Active subscription lookup
   const { data: subs } = await db
     .from("user_subscriptions")
-    .select("starts_at, expires_at, plan_id, plans!inner(max_tasks, max_groups)")
+    .select("starts_at, expires_at, period_type, plan_id, carry_over_tasks, carry_over_groups, plans!inner(max_tasks, max_groups)")
     .eq("user_id", userId)
     .eq("status", "active")
     .order("created_at", { ascending: false })
@@ -68,7 +70,15 @@ export async function getQuota(
 
   const plan = sub.plans as Record<string, unknown> | undefined;
   const rawLimit = plan ? (kind === "task" ? plan.max_tasks : plan.max_groups) : null;
-  const limit = rawLimit == null ? null : Number(rawLimit);
+  // Scale the plan's base (monthly) limit by how many months the user paid
+  // for. yearly = 12× monthly quota, half_yearly = 6×, monthly = 1×.
+  // null multiplier (forever) keeps limit as-is since it's effectively
+  // unlimited over a forever window.
+  const mult = periodMultiplier(sub.period_type as string | null);
+  // Carry-over = leftover quota from the previous subscription that was
+  // added to this one at purchase time. It rides on top of the base limit.
+  const carry = Number(kind === "task" ? sub.carry_over_tasks : sub.carry_over_groups) || 0;
+  const limit = rawLimit == null ? null : Number(rawLimit) * (mult ?? 1) + carry;
 
   // Count created in the current billing window
   const table = kind === "task" ? "tasks" : "groups";
@@ -140,6 +150,13 @@ export async function dispatchSubscriptionNotifications(db: DB, userId: string):
   const subId = sub.id as number;
   const plan = planName ? String(planName) : "your plan";
 
+  // Fetch user's email + name once — only used if we actually fire an email.
+  async function fetchUser(): Promise<{ email: string; name: string }> {
+    const { data: u } = await db.from("users").select("email, name").eq("id", userId).single();
+    const row = u as Record<string, unknown> | null;
+    return { email: String(row?.email || ""), name: String(row?.name || "there") };
+  }
+
   // Expired
   if (expiresAt <= now && sub.notified_expired !== true) {
     await db.from("notifications").insert({
@@ -150,6 +167,8 @@ export async function dispatchSubscriptionNotifications(db: DB, userId: string):
       link: "/plans",
       data: { subscription_id: subId, event: "expired" },
     } as never);
+    const u = await fetchUser();
+    if (u.email) await sendSubscriptionExpiredEmail(u.email, u.name, plan);
     await db.from("user_subscriptions").update({ notified_expired: true } as never).eq("id", subId);
     return;
   }
@@ -164,6 +183,8 @@ export async function dispatchSubscriptionNotifications(db: DB, userId: string):
       link: "/plans",
       data: { subscription_id: subId, event: "expiring_1d" },
     } as never);
+    const u = await fetchUser();
+    if (u.email) await sendSubscriptionExpiringEmail(u.email, u.name, plan, daysLeft);
     await db.from("user_subscriptions").update({ notified_expiring_1d: true } as never).eq("id", subId);
     return;
   }
@@ -178,6 +199,54 @@ export async function dispatchSubscriptionNotifications(db: DB, userId: string):
       link: "/plans",
       data: { subscription_id: subId, event: "expiring_7d" },
     } as never);
+    const u = await fetchUser();
+    if (u.email) await sendSubscriptionExpiringEmail(u.email, u.name, plan, daysLeft);
     await db.from("user_subscriptions").update({ notified_expiring_7d: true } as never).eq("id", subId);
   }
+}
+
+// ============================================================================
+// QUOTA CARRY-OVER
+// ============================================================================
+// Called at the moment a new subscription is about to be created (payment
+// approved, direct subscribe, admin assign). Returns how many tasks / groups
+// the user has LEFT on their current active sub — we then stash those as
+// carry_over_X on the new subscription so they aren't lost when the old sub
+// is cancelled. Returns zeros if there's no active sub.
+export async function computeRemainingQuota(
+  db: DB,
+  userId: string
+): Promise<{ tasks: number; groups: number }> {
+  const { data: subs } = await db
+    .from("user_subscriptions")
+    .select("starts_at, period_type, carry_over_tasks, carry_over_groups, plans!inner(max_tasks, max_groups)")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const sub = ((subs || []) as Record<string, unknown>[])[0] || null;
+  if (!sub) return { tasks: 0, groups: 0 };
+
+  const plan = sub.plans as Record<string, unknown> | undefined;
+  const mult = periodMultiplier(sub.period_type as string | null) ?? 1;
+  const carryTasks = Number(sub.carry_over_tasks) || 0;
+  const carryGroups = Number(sub.carry_over_groups) || 0;
+  const taskLimit = plan?.max_tasks == null ? null : Number(plan.max_tasks) * mult + carryTasks;
+  const groupLimit = plan?.max_groups == null ? null : Number(plan.max_groups) * mult + carryGroups;
+
+  const startsAt = sub.starts_at ? String(sub.starts_at) : new Date(0).toISOString();
+
+  const [tasksRes, groupsRes] = await Promise.all([
+    db.from("tasks").select("id", { count: "exact", head: true }).eq("created_by", userId).gte("created_at", startsAt),
+    db.from("groups").select("id", { count: "exact", head: true }).eq("created_by", userId).gte("created_at", startsAt),
+  ]);
+
+  const tasksUsed = tasksRes.count || 0;
+  const groupsUsed = groupsRes.count || 0;
+
+  return {
+    tasks: taskLimit == null ? 0 : Math.max(0, taskLimit - tasksUsed),
+    groups: groupLimit == null ? 0 : Math.max(0, groupLimit - groupsUsed),
+  };
 }

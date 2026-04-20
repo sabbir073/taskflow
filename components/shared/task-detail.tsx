@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Textarea, Btn, Badge } from "@/components/ui";
-import { CheckCircle, XCircle, Clock, Upload, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Upload, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell, Sparkles, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { useAcceptTask, useSubmitProof, useReviewAssignment } from "@/hooks/use-tasks";
 import { useNotifyAssignmentToSubmit } from "@/hooks/use-groups";
 import { getMyAssignmentForTask } from "@/lib/actions/assignments";
@@ -26,17 +27,17 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   const proofType = String(task.proof_type || taskType?.proof_type || "both");
   const isTaskOwner = String(task.created_by || "") === String(currentUserId);
   const canViewSubmissions = isAdmin || isTaskOwner;
+  // Group leader of the task's target group can see submission STATUS only
+  // (no approve/reject), and can nudge non-submitters.
+  const targetGroup = task.groups as Record<string, unknown> | undefined;
+  const isGroupLeaderOfTargetGroup =
+    !canViewSubmissions &&
+    String(task.target_type || "") === "group" &&
+    !!targetGroup?.leader_id &&
+    String(targetGroup.leader_id) === String(currentUserId);
 
   // Admin can click member names to open a profile modal
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
-
-  const myAssignment = assignments.find((a) => {
-    // Check both user_id directly and nested users.id from join
-    if (String(a.user_id) === String(currentUserId)) return true;
-    const user = a.users as Record<string, unknown> | undefined;
-    if (String(user?.id || "") === String(currentUserId)) return true;
-    return false;
-  });
 
 
   return (
@@ -59,6 +60,12 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
                 <RichTextContent html={String(task.description)} />
               </div>
             )}
+
+            {/* AI Prompt — shown when the task creator provided one */}
+            {!!task.ai_prompt && (
+              <AiPromptBlock prompt={String(task.ai_prompt)} />
+            )}
+
 
             {(() => {
               const images = (task.images as string[]) || [];
@@ -122,6 +129,28 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
                       isAdmin={isAdmin}
                       onViewProfile={isAdmin ? setProfileUserId : undefined}
                     />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {isGroupLeaderOfTargetGroup && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Submission Status ({assignments.length})</CardTitle>
+              <CardDescription>
+                As the group leader you can see who has submitted and send a reminder to those who haven&apos;t. Only admins can approve or reject proofs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {assignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No members assigned yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {assignments.map((a) => (
+                    <GroupLeaderStatusRow key={a.id as number} assignment={a} />
                   ))}
                 </div>
               )}
@@ -216,11 +245,15 @@ function MyProofSection({ taskId, proofType }: { taskId: number; proofType: stri
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+    // Defer the setLoading flip so we don't cascade-render from inside the effect
+    queueMicrotask(() => { if (!cancelled) setLoading(true); });
     getMyAssignmentForTask(taskId).then((data) => {
+      if (cancelled) return;
       setAssignment(data);
       setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [taskId, refreshKey]);
 
   if (loading) return (
@@ -339,6 +372,54 @@ function ProofSection({ assignment, proofType, onRefresh }: { assignment: Record
   );
 }
 
+// Read-only row shown to the group leader of the task's target group. They
+// see assignment status + can fire a reminder to non-submitters, but cannot
+// approve/reject proofs — that remains admin-only.
+function GroupLeaderStatusRow({ assignment }: { assignment: Record<string, unknown> }) {
+  const notifySubmit = useNotifyAssignmentToSubmit();
+  const user = assignment.users as Record<string, unknown> | undefined;
+  const name = String(user?.name || "Unknown");
+  const email = String(user?.email || "");
+  const status = String(assignment.status);
+  const canNotify = ["pending", "in_progress", "rejected"].includes(status);
+  const submittedAt = assignment.submitted_at as string | null;
+
+  const statusBadge = (() => {
+    if (status === "approved") return <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" /> Approved</Badge>;
+    if (status === "rejected") return <Badge variant="error"><XCircle className="w-3 h-3 mr-1" /> Rejected</Badge>;
+    if (status === "submitted") return <Badge variant="primary"><Clock className="w-3 h-3 mr-1" /> Submitted</Badge>;
+    return <Badge variant="warning"><Clock className="w-3 h-3 mr-1" /> Not submitted</Badge>;
+  })();
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl border border-border/40 hover:bg-muted/30 transition-colors">
+      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+        {getInitials(name)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{name}</p>
+        <p className="text-xs text-muted-foreground truncate">{email}</p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {statusBadge}
+        {submittedAt && (
+          <span className="text-[11px] text-muted-foreground hidden sm:inline">{formatDate(submittedAt)}</span>
+        )}
+        {canNotify && (
+          <Btn
+            size="sm"
+            variant="outline"
+            isLoading={notifySubmit.isPending}
+            onClick={() => notifySubmit.mutate(assignment.id as number)}
+          >
+            <Bell className="w-3.5 h-3.5 mr-1" /> Remind
+          </Btn>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AssignmentRow({
   assignment,
   isAdmin,
@@ -426,6 +507,58 @@ function AssignmentRow({
       )}
 
       {status === "rejected" && !!assignment.rejection_reason && <p className="text-xs text-error">Reason: {String(assignment.rejection_reason)}</p>}
+    </div>
+  );
+}
+
+// ============================================================================
+// AI Prompt block — shown to users on the task detail page with a copy button
+// ============================================================================
+function AiPromptBlock({ prompt }: { prompt: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopied(true);
+      toast.success("Prompt copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Couldn't copy — select and copy manually");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.04] to-accent/[0.03] p-4 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">AI Prompt</p>
+            <p className="text-[11px] text-muted-foreground">Copy this and paste into ChatGPT / Claude to generate the content</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={copy}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+            copied
+              ? "bg-success/15 text-success"
+              : "bg-primary text-white hover:bg-primary/90 shadow-sm shadow-primary/20"
+          }`}
+        >
+          {copied ? (
+            <><CheckCircle className="w-3.5 h-3.5" /> Copied</>
+          ) : (
+            <><Copy className="w-3.5 h-3.5" /> Copy prompt</>
+          )}
+        </button>
+      </div>
+      <div className="rounded-lg bg-card border border-border/40 px-3 py-2.5">
+        <p className="text-sm whitespace-pre-wrap font-mono leading-relaxed">{prompt}</p>
+      </div>
     </div>
   );
 }

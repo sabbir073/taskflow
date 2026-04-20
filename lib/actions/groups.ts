@@ -5,6 +5,7 @@ import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { slugify } from "@/lib/utils";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
+import { recordAudit } from "@/lib/audit";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 type DB = ReturnType<typeof getServerClient>;
@@ -202,6 +203,8 @@ export async function approveGroup(groupId: number): Promise<ApiResponse> {
       );
     }
 
+    await recordAudit(db, session.user.id, "approve_group", "group", String(groupId), { name: groupName });
+
     return { success: true, message: "Group approved" };
   } catch {
     return { success: false, error: "Failed to approve group" };
@@ -233,6 +236,8 @@ export async function rejectGroup(groupId: number, reason?: string): Promise<Api
         { group_id: groupId, reason }
       );
     }
+
+    await recordAudit(db, session.user.id, "reject_group", "group", String(groupId), { name: String(g.name || ""), reason: reason || null });
 
     return { success: true, message: "Group rejected" };
   } catch {
@@ -410,6 +415,8 @@ export async function deleteGroup(groupId: number): Promise<ApiResponse> {
         { group_id: groupId }
       );
     }
+
+    await recordAudit(db, session.user.id, "delete_group", "group", String(groupId), { name: String(g.name || "") });
 
     return { success: true, message: "Group deleted" };
   } catch {
@@ -655,18 +662,20 @@ export async function addMemberByEmail(groupId: number, email: string): Promise<
       return { success: false, error: "Failed to add member" };
     }
 
-    // Only notify the added user if the group is already approved
-    if (g.approval_status === "approved") {
-      await notifyUsers(
-        db,
-        [userId],
-        "group_joined",
-        "Added to Group",
-        `You were added to "${String(g.name || "")}".`,
-        `/groups/${groupId}`,
-        { group_id: groupId }
-      );
-    }
+    // Always notify the added user. Message wording differs based on whether
+    // the group is approved yet, so the added member knows what to expect.
+    const isApproved = g.approval_status === "approved";
+    await notifyUsers(
+      db,
+      [userId],
+      "group_joined",
+      isApproved ? "Added to Group" : "Added to Group — Awaiting Approval",
+      isApproved
+        ? `You were added to "${String(g.name || "")}".`
+        : `You were added to "${String(g.name || "")}". The group is awaiting admin approval — you'll be able to access it once approved.`,
+      `/groups/${groupId}`,
+      { group_id: groupId }
+    );
 
     return { success: true, message: `${email} added to group` };
   } catch { return { success: false, error: "Failed to add member" }; }
@@ -674,7 +683,33 @@ export async function addMemberByEmail(groupId: number, email: string): Promise<
 
 export async function addMember(groupId: number, userId: string): Promise<ApiResponse> {
   try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
     const db = getServerClient();
+
+    // Same authorization + capacity checks as addMemberByEmail — this path
+    // was previously wide open to any authenticated caller which let a user
+    // force-join themselves (or anyone else) into any group.
+    const { data: group } = await db
+      .from("groups")
+      .select("leader_id, max_members")
+      .eq("id", groupId)
+      .single();
+    if (!group) return { success: false, error: "Group not found" };
+    const g = group as Record<string, unknown>;
+    if (g.leader_id !== session.user.id && !isAdmin(session.user.role)) {
+      return { success: false, error: "Only group leader or admin can add members" };
+    }
+
+    const { count } = await db
+      .from("group_members")
+      .select("id", { count: "exact", head: true })
+      .eq("group_id", groupId);
+    if ((count || 0) >= Number(g.max_members || 0)) {
+      return { success: false, error: "Group is full" };
+    }
+
     const { error } = await db.from("group_members").insert({ group_id: groupId, user_id: userId, role: "member" } as never);
     if (error) { if (error.code === "23505") return { success: false, error: "Already a member" }; return { success: false, error: "Failed to add member" }; }
     return { success: true, message: "Member added" };
@@ -877,4 +912,72 @@ export async function getGroupLeaderboard(groupId: number) {
       current_streak: Number(row.current_streak || 0),
     };
   });
+}
+
+// ============================================================================
+// LEADERSHIP HANDOFF
+// ============================================================================
+// Called when a leader is demoted, suspended, banned, or deleted. For each
+// group that the user leads, either promote the earliest-joined member to
+// leader, or archive the group if no other members exist. Notifies everyone
+// involved and records the handoff. Silent if the user leads no groups.
+export async function handleLeaderRemoval(userId: string, reason: string): Promise<void> {
+  try {
+    const db = getServerClient();
+
+    const { data: owned } = await db
+      .from("groups")
+      .select("id, name")
+      .eq("leader_id", userId);
+
+    const groups = (owned || []) as Record<string, unknown>[];
+    if (groups.length === 0) return;
+
+    for (const g of groups) {
+      const gid = g.id as number;
+      const gname = String(g.name || "group");
+
+      // Earliest-joined member who is NOT the outgoing leader
+      const { data: mem } = await db
+        .from("group_members")
+        .select("user_id, joined_at")
+        .eq("group_id", gid)
+        .neq("user_id", userId)
+        .order("joined_at", { ascending: true })
+        .limit(1);
+
+      const successor = ((mem || []) as Record<string, unknown>[])[0] || null;
+
+      if (successor) {
+        const newLeaderId = String(successor.user_id);
+        await db.from("groups").update({ leader_id: newLeaderId } as never).eq("id", gid);
+        await db
+          .from("group_members")
+          .update({ role: "leader" } as never)
+          .eq("group_id", gid)
+          .eq("user_id", newLeaderId);
+
+        // Notify the new leader + all other members
+        const memberIds = await getGroupMemberIds(db, gid);
+        await notifyUsers(
+          db,
+          memberIds.filter((id) => id !== userId),
+          "system",
+          "New Group Leader",
+          `${gname}: leadership transferred (${reason}).`,
+          `/groups/${gid}`,
+          { group_id: gid, new_leader_id: newLeaderId, reason }
+        );
+      } else {
+        // No other members — archive the group so it doesn't sit orphaned.
+        await db
+          .from("groups")
+          .update({ approval_status: "rejected_by_admin" } as never)
+          .eq("id", gid);
+      }
+    }
+  } catch {
+    // Silent — this runs as a side-effect of role changes; never block the
+    // originating action if the handoff logic fails.
+  }
 }

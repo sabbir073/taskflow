@@ -2,9 +2,25 @@
 
 import { hash } from "bcryptjs";
 import { z } from "zod";
+import { headers } from "next/headers";
 import { getServerClient } from "@/lib/db/supabase";
-import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
+import {
+  sendPasswordResetEmail,
+  sendWelcomeEmail,
+  sendAdminNewSignupAlert,
+} from "@/lib/email";
+import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
 import type { ApiResponse } from "@/types";
+
+// Caller IP (best-effort — trusted only as a rate-limit key, never for auth).
+async function getIp(): Promise<string> {
+  try {
+    const h = await headers();
+    return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -34,6 +50,13 @@ export async function registerUser(formData: {
   };
 }): Promise<ApiResponse> {
   try {
+    // Rate limit per IP — 3 signups/hour prevents trivial account flooding
+    const ip = await getIp();
+    const rate = checkRate("register", ip, 3, 60 * 60 * 1000);
+    if (!rate.allowed) {
+      return { success: false, error: `Too many attempts — try again in ${formatRetryAfter(rate.retryAfterSec)}` };
+    }
+
     const validated = registerSchema.parse(formData);
     const db = getServerClient();
 
@@ -172,10 +195,15 @@ export async function registerUser(formData: {
       }
     }
 
-    // Notify admins on any new signup that needs attention
+    // Notify admins on any new signup that needs attention (in-app + email)
     if (requireApproval || (subRequired && formData.payment)) {
-      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
-      const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
+      const { data: admins } = await db
+        .from("users")
+        .select("id, email, profiles!inner(role)")
+        .in("profiles.role", ["super_admin", "admin"]);
+      const adminRows = (admins || []) as Record<string, unknown>[];
+      const adminIds = adminRows.map((a) => a.id as string);
+      const adminEmails = adminRows.map((a) => a.email as string).filter(Boolean);
       if (adminIds.length > 0) {
         const reason = subRequired && formData.payment
           ? `${validated.name} signed up and submitted a payment. Please review.`
@@ -189,6 +217,9 @@ export async function registerUser(formData: {
           data: { user_id: userId },
         }));
         await db.from("notifications").insert(notifs as never[]);
+        if (adminEmails.length > 0) {
+          await sendAdminNewSignupAlert(adminEmails, { name: validated.name, email: validated.email });
+        }
       }
     }
 
@@ -211,13 +242,15 @@ export async function registerUser(formData: {
       expires: expires.toISOString(),
     } as never);
 
+    // Welcome email doubles as the verification email — the user can verify
+    // now or later (it's optional, not a blocker for login).
     try {
-      await sendVerificationEmail(validated.email, token);
+      await sendWelcomeEmail(validated.email, validated.name, token);
     } catch {
       // Don't fail registration if email fails
     }
 
-    return { success: true, message: "Account created! Please check your email to verify." };
+    return { success: true, message: "Account created! Check your email for your welcome message." };
   } catch (err) {
     if (err instanceof z.ZodError) {
       const firstIssue = (err as z.ZodError).issues?.[0];
@@ -262,6 +295,14 @@ export async function verifyEmail(token: string): Promise<ApiResponse> {
 
 export async function forgotPassword(email: string): Promise<ApiResponse> {
   try {
+    // Rate limit per email — stops spray attempts. Response is always neutral
+    // (we don't expose whether the account exists) so the rate limit also
+    // doesn't leak that info.
+    const rate = checkRate("forgot-password", email.toLowerCase().trim(), 3, 60 * 60 * 1000);
+    if (!rate.allowed) {
+      return { success: true, message: "If an account exists, a reset link has been sent." };
+    }
+
     const db = getServerClient();
 
     const { data: user } = await db

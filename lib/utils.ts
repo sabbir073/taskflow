@@ -5,6 +5,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Strip characters that break out of Supabase PostgREST filter grammar when
+// user input is interpolated into `.or()` / `.ilike()` chains. Not SQL
+// injection — PostgREST parses its own filter language — but unescaped
+// commas/parens/quotes let a search term bleed into adjacent filters. Used
+// for search boxes on admin pages (users, broadcasts, audit log).
+export function escapePgLikeOr(s: string): string {
+  return s.replace(/[,()*"%\\]/g, "").trim().slice(0, 100);
+}
+
 export function formatDate(date: Date | string): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",

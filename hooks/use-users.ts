@@ -8,14 +8,17 @@ import {
   updateUserStatus,
   deleteUser,
   assignPoints,
+  approveUser,
+  rejectUser,
 } from "@/lib/actions/users";
 import { toast } from "sonner";
 import type { PaginationParams } from "@/types";
 
-export function useUsers(params: PaginationParams & { role?: string; status?: string }) {
+export function useUsers(params: PaginationParams & { role?: string; status?: string; approval?: "pending" | "approved" }) {
   return useQuery({
     queryKey: ["users", params],
     queryFn: () => getUsers(params),
+    refetchInterval: 60000,
   });
 }
 
@@ -70,6 +73,32 @@ export function useDeleteUser() {
       } else {
         toast.error(result.error);
       }
+    },
+  });
+}
+
+export function useApproveUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => approveUser(userId),
+    onSuccess: (r) => {
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["users"] });
+      } else toast.error(r.error);
+    },
+  });
+}
+
+export function useRejectUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => rejectUser(userId),
+    onSuccess: (r) => {
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["users"] });
+      } else toast.error(r.error);
     },
   });
 }

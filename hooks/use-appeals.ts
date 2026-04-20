@@ -5,14 +5,15 @@ import { getMyStatus, getMyLatestAppeal, submitAppeal, getAppeals, reviewAppeal 
 import { toast } from "sonner";
 import type { PaginationParams } from "@/types";
 
-// Polled every 5s so suspension / reactivation takes effect in real time
+// Polled every 30s so suspension / reactivation propagates without hammering
+// the DB. refetchOnWindowFocus is the real safety net for immediate pickup.
 export function useMyStatus() {
   return useQuery({
     queryKey: ["my-status"],
     queryFn: getMyStatus,
-    refetchInterval: 5000,
+    refetchInterval: 30000,
     refetchOnWindowFocus: true,
-    staleTime: 2000,
+    staleTime: 10000,
   });
 }
 
@@ -20,7 +21,7 @@ export function useMyLatestAppeal() {
   return useQuery({
     queryKey: ["my-latest-appeal"],
     queryFn: getMyLatestAppeal,
-    refetchInterval: 10000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }
@@ -42,7 +43,7 @@ export function useAppeals(params?: PaginationParams & { status?: string }) {
   return useQuery({
     queryKey: ["appeals", params],
     queryFn: () => getAppeals(params),
-    refetchInterval: 10000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
 }

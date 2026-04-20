@@ -4,11 +4,13 @@ import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
+import { recordAudit } from "@/lib/audit";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 const taskSchema = z.object({
   title: z.string().min(1).max(200),
-  description: z.string().max(2000).optional().default(""),
+  description: z.string().max(5000).optional().default(""),
+  ai_prompt: z.string().max(5000).optional().nullable().default(null),
   platform_id: z.number().int().positive(),
   task_type_id: z.number().int().positive(),
   task_data: z.record(z.string(), z.string()).optional().default({}),
@@ -119,6 +121,7 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
         points_spent: 0,
         images: validated.images || [],
         urls: validated.urls || [],
+        ai_prompt: validated.ai_prompt || null,
         approval_status: approvalStatus,
         created_by: session.user.id,
       } as never)
@@ -185,27 +188,16 @@ async function deductBudgetFromWallet(
   amount: number,
   taskId: number
 ) {
-  // Deduct from wallet
-  const { data: profile } = await db
-    .from("profiles")
-    .select("total_points")
-    .eq("user_id", userId)
-    .single();
-
-  const currentBalance = profile ? Number((profile as Record<string, unknown>).total_points) : 0;
-  await db
-    .from("profiles")
-    .update({ total_points: currentBalance - amount } as never)
-    .eq("user_id", userId);
-
-  // Log transaction
-  await db.from("points_history").insert({
-    user_id: userId,
-    amount: -amount,
-    action: "task_completed", // reusing enum - task budget locked
-    description: `Points locked for task budget (Task #${taskId})`,
-    reference_type: "task",
-    reference_id: String(taskId),
+  // Atomic debit. The caller validated the balance upstream, so if the RPC
+  // rejects with insufficient_balance it's an unexpected race — surface as
+  // an error by letting the RPC error propagate to the caller's try/catch.
+  await db.rpc("adjust_user_points", {
+    p_user_id: userId,
+    p_delta: -amount,
+    p_action: "task_completed",
+    p_description: `Points locked for task budget (Task #${taskId})`,
+    p_reference_type: "task",
+    p_reference_id: String(taskId),
   } as never);
 }
 
@@ -305,6 +297,8 @@ export async function approveTask(taskId: number): Promise<ApiResponse> {
       } as never);
     }
 
+    await recordAudit(db, session.user.id, "approve_task", "task", String(taskId), { title: String(t.title || "") });
+
     return { success: true, message: "Task approved" };
   } catch {
     return { success: false, error: "Failed to approve task" };
@@ -336,27 +330,17 @@ export async function rejectTask(taskId: number, reason?: string): Promise<ApiRe
     const refund = budget - spent;
 
     if (refund > 0) {
-      const { data: profile } = await db
-        .from("profiles")
-        .select("total_points")
-        .eq("user_id", t.created_by)
-        .single();
-
-      const currentBalance = profile ? Number((profile as Record<string, unknown>).total_points) : 0;
-      await db
-        .from("profiles")
-        .update({ total_points: currentBalance + refund } as never)
-        .eq("user_id", t.created_by);
-
-      await db.from("points_history").insert({
-        user_id: t.created_by,
-        amount: refund,
-        action: "task_rejected",
-        description: `Task rejected by admin - budget refunded${reason ? `: ${reason}` : ""}`,
-        reference_type: "task",
-        reference_id: String(taskId),
+      await db.rpc("adjust_user_points", {
+        p_user_id: t.created_by,
+        p_delta: refund,
+        p_action: "task_rejected",
+        p_description: `Task rejected by admin - budget refunded${reason ? `: ${reason}` : ""}`,
+        p_reference_type: "task",
+        p_reference_id: String(taskId),
       } as never);
     }
+
+    await recordAudit(db, session.user.id, "reject_task", "task", String(taskId), { title: String(t.title || ""), reason: reason || null });
 
     return { success: true, message: "Task rejected and points refunded" };
   } catch {
@@ -461,17 +445,13 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
       taskTitle = String(t.title || "a task");
       const refund = Number(t.point_budget || 0) - Number(t.points_spent || 0);
       if (refund > 0) {
-        const { data: profile } = await db.from("profiles").select("total_points").eq("user_id", t.created_by).single();
-        const balance = profile ? Number((profile as Record<string, unknown>).total_points) : 0;
-        await db.from("profiles").update({ total_points: balance + refund } as never).eq("user_id", t.created_by);
-
-        await db.from("points_history").insert({
-          user_id: t.created_by,
-          amount: refund,
-          action: "task_rejected",
-          description: "Task deleted - remaining budget refunded",
-          reference_type: "task",
-          reference_id: String(taskId),
+        await db.rpc("adjust_user_points", {
+          p_user_id: t.created_by,
+          p_delta: refund,
+          p_action: "task_rejected",
+          p_description: "Task deleted - remaining budget refunded",
+          p_reference_type: "task",
+          p_reference_id: String(taskId),
         } as never);
       }
     }
@@ -490,6 +470,8 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
         data: { task_id: taskId, deleted_by: session.user.id },
       } as never);
     }
+
+    await recordAudit(db, session.user.id, "delete_task", "task", String(taskId), { title: taskTitle });
 
     return { success: true, message: "Task deleted" };
   } catch {
@@ -603,7 +585,7 @@ export async function getTaskById(taskId: number) {
 
   const { data: task } = await db
     .from("tasks")
-    .select("*, platforms!inner(name, slug, icon), task_types!inner(name, slug, required_fields, proof_type, default_points), users!tasks_created_by_fkey(name, email)")
+    .select("*, platforms!inner(name, slug, icon), task_types!inner(name, slug, required_fields, proof_type, default_points), users!tasks_created_by_fkey(name, email), groups(id, name, leader_id)")
     .eq("id", taskId)
     .single();
 
