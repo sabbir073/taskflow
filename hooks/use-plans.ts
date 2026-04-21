@@ -13,8 +13,17 @@ function invalidatePlans(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["my-subscription"] });
 }
 
-export function usePlans() {
-  return useQuery({ queryKey: ["plans"], queryFn: getPlans, refetchInterval: 120000 });
+export function usePlans(initialData?: Record<string, unknown>[]) {
+  // initialData lets the server pre-fetch plans and hand them to the client
+  // instantly — eliminates the loading skeleton on the landing page.
+  return useQuery({
+    queryKey: ["plans"],
+    queryFn: getPlans,
+    refetchInterval: 120000,
+    initialData,
+    // Don't re-fetch on mount if we already have server data (saves a request).
+    staleTime: initialData ? 60_000 : 0,
+  });
 }
 
 // Admin — includes inactive plans for management

@@ -10,11 +10,25 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "TaskFlow - Social Media Task Exchange",
+    default: "TaskFlow — Grow Your Social Media 100% Organically",
     template: "%s | TaskFlow",
   },
   description:
-    "Empower teams to amplify their social media presence through gamified task management, seamless collaboration, and data-driven insights.",
+    "TaskFlow is the world's smartest organic social media growth and content exchange platform. Earn points by engaging with real creators, then spend points to make your own content go viral — no ads, no bots, just real humans.",
+  keywords: [
+    "organic social media growth",
+    "content exchange platform",
+    "social media promotion",
+    "get real followers",
+    "viral marketing",
+    "TaskFlow",
+  ],
+  openGraph: {
+    title: "TaskFlow — Grow Your Social Media 100% Organically",
+    description:
+      "Exchange real engagement with real creators. Earn points, promote your content, and watch your posts go viral — organically.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

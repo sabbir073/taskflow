@@ -6,12 +6,13 @@ import { signOut } from "next-auth/react";
 import { Btn } from "@/components/ui";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
-  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History,
+  Bell, Settings, Globe, LogOut, X, Trophy, CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History, Mail,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
 import { useAppSettings } from "@/components/providers/settings-provider";
+import { Logo } from "@/components/shared/logo";
 import type { SessionUser } from "@/types";
 import type { UserRole } from "@/types/database";
 
@@ -23,6 +24,7 @@ const navItems = [
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" as Permission },
   { label: "Broadcast", href: "/broadcast", icon: Send, permission: "manage_users" as Permission },
+  { label: "Contact Messages", href: "/contact-messages", icon: Mail, permission: "manage_users" as Permission },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" as Permission },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" as Permission },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" as Permission },
@@ -68,12 +70,7 @@ export function MobileNav({ user, isOpen, onClose }: MobileNavProps) {
       )}>
         {/* Header */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <span className="text-white font-bold text-sm">T</span>
-            </div>
-            <span className="font-bold text-lg">TaskFlow</span>
-          </div>
+          <Logo href="/dashboard" size="sm" />
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors">
             <X className="w-5 h-5" />
           </button>

@@ -8,11 +8,12 @@ import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History,
+  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History, Mail,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
 import { cn, getInitials } from "@/lib/utils";
 import { hasPermission, type Permission } from "@/lib/constants/roles";
+import { Logo } from "@/components/shared/logo";
 import type { SessionUser } from "@/types";
 import type { UserRole } from "@/types/database";
 
@@ -31,6 +32,7 @@ const navItems: NavItem[] = [
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" },
   { label: "Broadcast", href: "/broadcast", icon: Send, permission: "manage_users" },
+  { label: "Contact Messages", href: "/contact-messages", icon: Mail, permission: "manage_users" },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" },
@@ -66,12 +68,13 @@ export function Sidebar({ user }: { user: SessionUser }) {
     >
       {/* Logo */}
       <div className="flex items-center justify-between h-16 px-4 border-b border-sidebar-border">
-        <Link href="/dashboard" className={cn("flex items-center gap-2", collapsed && "mx-auto")}>
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
-            <span className="text-white font-bold text-sm">T</span>
-          </div>
-          {!collapsed && <span className="font-bold text-lg">{appSettings.site_name}</span>}
-        </Link>
+        <Logo
+          href="/dashboard"
+          compact={collapsed}
+          size="sm"
+          name={(appSettings.site_name as string) || undefined}
+          className={cn(collapsed && "mx-auto")}
+        />
       </div>
 
       {/* Navigation */}

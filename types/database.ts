@@ -307,6 +307,23 @@ export interface UserSubscription {
   created_at: string;
 }
 
+// Contact-form submission from the public landing page. Admin triages via
+// the /contact-messages inbox. Status transitions: unread → read → archived.
+export interface ContactSubmission {
+  id: number;
+  name: string;
+  email: string;
+  subject: string | null;
+  message: string;
+  status: "unread" | "read" | "archived";
+  admin_notes: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  handled_by: string | null;
+  handled_at: string | null;
+  created_at: string;
+}
+
 // Admin audit log — recorded on every privileged mutation for forensics.
 export interface AdminAuditLog {
   id: number;

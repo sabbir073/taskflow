@@ -1,8 +1,18 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 
-// Always-open routes (marketing / error pages / landing)
-const publicPaths = ["/"];
+// Always-open routes (marketing / error pages / landing).
+// Anything under app/(marketing)/ should be listed here.
+const publicPaths = [
+  "/",
+  "/help",
+  "/community",
+  "/status",
+  "/terms",
+  "/privacy",
+  "/refund",
+  "/cookies",
+];
 // Auth-only routes — must be signed OUT to visit these
 const authPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
 const authApiPath = "/api/auth";

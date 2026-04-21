@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Logo } from "@/components/shared/logo";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -11,13 +12,8 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-[420px] relative z-10">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/25">
-              <span className="text-white font-bold text-lg">T</span>
-            </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              TaskFlow
-            </h1>
+          <div className="flex justify-center mb-2">
+            <Logo href="/" size="lg" />
           </div>
           <p className="text-muted-foreground text-sm">
             Social Media Task Exchange Platform
