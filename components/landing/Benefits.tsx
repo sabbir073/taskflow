@@ -107,32 +107,36 @@ export default function Benefits() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.5 }}
-        className="mt-14 overflow-hidden rounded-3xl border border-ink-100 bg-gradient-to-br from-brand-600 via-accent-500 to-orange-400 p-8 text-white sm:p-12"
+        className="mt-14 overflow-hidden rounded-3xl border border-ink-100 bg-gradient-to-br from-brand-600 via-accent-500 to-orange-400 p-6 text-white sm:p-10 lg:p-12"
       >
         <div className="grid items-center gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <h3 className="text-2xl font-bold sm:text-3xl">
               Your post. Real humans. Viral reach.
             </h3>
-            <p className="mt-3 max-w-2xl text-white/90">
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/90 sm:text-base">
               When you promote a post on TaskFlow, real creators share it on
               their own Facebook, Instagram, Twitter, LinkedIn, and Telegram
               feeds — exposing you to millions of new people who genuinely
               discover your content organically.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-4 lg:grid-cols-1">
-            <div className="rounded-2xl bg-white/15 p-4 backdrop-blur">
-              <div className="text-2xl font-extrabold">10K+</div>
-              <div className="text-xs text-white/80">active users</div>
+          {/* Stats: 3-column row on mobile + tablet (compact), single column
+              vertical only at lg+ where the heading takes 2/3 of the row.
+              `min-w-0` lets the inner number truncate gracefully if a future
+              admin pushes a 7-digit metric in there. */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-1 lg:gap-4">
+            <div className="min-w-0 rounded-2xl bg-white/15 p-3 backdrop-blur sm:p-4">
+              <div className="text-xl font-extrabold leading-none sm:text-2xl">10K+</div>
+              <div className="mt-1 text-[11px] leading-snug text-white/80 sm:text-xs">active users</div>
             </div>
-            <div className="rounded-2xl bg-white/15 p-4 backdrop-blur">
-              <div className="text-2xl font-extrabold">500K+</div>
-              <div className="text-xs text-white/80">tasks completed</div>
+            <div className="min-w-0 rounded-2xl bg-white/15 p-3 backdrop-blur sm:p-4">
+              <div className="text-xl font-extrabold leading-none sm:text-2xl">500K+</div>
+              <div className="mt-1 text-[11px] leading-snug text-white/80 sm:text-xs">tasks completed</div>
             </div>
-            <div className="rounded-2xl bg-white/15 p-4 backdrop-blur">
-              <div className="text-2xl font-extrabold">99.9%</div>
-              <div className="text-xs text-white/80">uptime · 24/7 support</div>
+            <div className="min-w-0 rounded-2xl bg-white/15 p-3 backdrop-blur sm:p-4">
+              <div className="text-xl font-extrabold leading-none sm:text-2xl">99.9%</div>
+              <div className="mt-1 text-[11px] leading-snug text-white/80 sm:text-xs">uptime &middot; 24/7</div>
             </div>
           </div>
         </div>
