@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, Badge } from "@/components/ui";
-import { Trophy, Medal, Award, Flame, Coins, CheckCircle2 } from "lucide-react";
+import { Trophy, Medal, Award, Flame, Coins, CheckCircle2, Crown } from "lucide-react";
 import { getLeaderboard } from "@/lib/actions/points";
 import { getInitials } from "@/lib/utils";
 
@@ -79,97 +79,122 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
         const isMeFirst = first?.user_id === currentUserId;
         const isMeSecond = second?.user_id === currentUserId;
         const isMeThird = third?.user_id === currentUserId;
-        const FirstIcon = medals[0].icon;
         const SecondIcon = medals[1].icon;
         const ThirdIcon = medals[2].icon;
 
         return (
-          <div className="sm:hidden space-y-3">
-            {/* Champion card — full bleed, brand gradient */}
+          <div className="sm:hidden space-y-4">
+            {/* HERO — Champion celebration card. Full-bleed past the page
+                padding so it feels like a featured app screen. */}
             {first && (
-              <Card className={`overflow-hidden border-2 border-yellow-500/40 ${isMeFirst ? "ring-2 ring-primary/30" : ""}`}>
-                <div className="relative bg-gradient-to-br from-yellow-500/15 via-amber-500/10 to-orange-500/15 px-5 py-5">
-                  <div className="absolute top-3 right-3 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-500/20 text-yellow-600 text-[10px] font-bold uppercase tracking-wider">
-                    <Trophy className="w-3 h-3" /> Champion
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xl font-bold text-white shadow-lg">
-                        {getInitials(first.name)}
+              <div className="-mx-4">
+                <Card className={`overflow-hidden border-0 rounded-none shadow-md ${isMeFirst ? "ring-2 ring-primary/40" : ""}`}>
+                  <div className="relative">
+                    {/* Layered gradient + decorative blurred blobs */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-yellow-300/30 via-orange-300/25 to-pink-300/25 dark:from-yellow-500/20 dark:via-orange-500/15 dark:to-pink-500/15" />
+                    <div className="pointer-events-none absolute -top-24 -right-20 w-56 h-56 rounded-full bg-yellow-400/30 blur-3xl" />
+                    <div className="pointer-events-none absolute -bottom-20 -left-20 w-48 h-48 rounded-full bg-pink-400/20 blur-3xl" />
+
+                    <div className="relative px-5 pt-6 pb-5 text-center">
+                      {/* Champion pill */}
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-500/25 backdrop-blur text-yellow-700 dark:text-yellow-400 text-[10px] font-extrabold uppercase tracking-[0.15em]">
+                        <Crown className="w-3.5 h-3.5" /> Champion
                       </div>
-                      <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-yellow-500 flex items-center justify-center shadow-md">
-                        <FirstIcon className="w-4 h-4 text-white" />
+
+                      {/* Avatar with gradient ring + floating trophy */}
+                      <div className="relative w-24 h-24 mx-auto mt-4">
+                        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-yellow-400 via-orange-400 to-pink-500 p-[3px] shadow-xl shadow-orange-400/30">
+                          <div className="w-full h-full rounded-full bg-card flex items-center justify-center p-1">
+                            <div className="w-full h-full rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-2xl font-bold text-white">
+                              {getInitials(first.name)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-9 h-9 rounded-full bg-yellow-500 flex items-center justify-center shadow-lg ring-2 ring-card">
+                          <Trophy className="w-4 h-4 text-white" />
+                        </div>
+                      </div>
+
+                      {/* Name */}
+                      <p className="mt-3 text-lg font-extrabold leading-tight truncate px-4">{first.name}</p>
+                      {isMeFirst && <Badge variant="primary" className="mt-1.5 text-[10px]">You</Badge>}
+
+                      {/* Headline points */}
+                      <div className="mt-3">
+                        <p className="text-4xl font-black text-warning leading-none tabular-nums">
+                          {first.total_points.toFixed(2)}
+                        </p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground mt-1.5">Total Points</p>
+                      </div>
+
+                      {/* Chip row — tasks + streak */}
+                      <div className="mt-4 flex items-center justify-center gap-2">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur border border-border/50 shadow-sm">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+                          <span className="text-xs font-extrabold tabular-nums">{first.tasks_completed}</span>
+                          <span className="text-[10px] text-muted-foreground">tasks</span>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur border border-border/50 shadow-sm">
+                          <Flame className="w-3.5 h-3.5 text-accent" />
+                          <span className="text-xs font-extrabold tabular-nums">{first.current_streak}d</span>
+                          <span className="text-[10px] text-muted-foreground">streak</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-yellow-600">#1 &middot; All time</p>
-                      <p className="text-lg font-bold leading-tight truncate mt-0.5">{first.name}</p>
-                      {isMeFirst && <Badge variant="primary" className="mt-1">You</Badge>}
-                    </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <div className="rounded-xl bg-white/40 dark:bg-black/20 backdrop-blur-sm px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Points</p>
-                      <p className="text-base font-bold text-warning leading-tight">{first.total_points.toFixed(2)}</p>
-                    </div>
-                    <div className="rounded-xl bg-white/40 dark:bg-black/20 backdrop-blur-sm px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Tasks</p>
-                      <p className="text-base font-bold leading-tight">{first.tasks_completed}</p>
-                    </div>
-                    <div className="rounded-xl bg-white/40 dark:bg-black/20 backdrop-blur-sm px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Streak</p>
-                      <p className="text-base font-bold leading-tight inline-flex items-center gap-1">
-                        <Flame className="w-3.5 h-3.5 text-accent" />
-                        {first.current_streak}d
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </Card>
+                </Card>
+              </div>
             )}
 
-            {/* #2 and #3 side-by-side */}
+            {/* PODIUM — #2 and #3 with medal accent bar */}
             <div className="grid grid-cols-2 gap-3">
-              {second && (
-                <Card className={`overflow-hidden border ${medals[1].border} ${isMeSecond ? "ring-2 ring-primary/30" : ""}`}>
-                  <CardContent className="p-3 text-center">
-                    <div className="flex items-center justify-center gap-1.5 mb-2">
-                      <SecondIcon className={`w-4 h-4 ${medals[1].color}`} />
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${medals[1].color}`}>2nd</span>
-                    </div>
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-sm font-bold text-primary mx-auto mb-1.5">
-                      {getInitials(second.name)}
-                    </div>
-                    <p className="font-bold text-xs truncate">{second.name}</p>
-                    <p className="text-base font-bold text-warning mt-0.5">{second.total_points.toFixed(2)}</p>
-                    <p className="text-[10px] text-muted-foreground inline-flex items-center gap-0.5">
-                      <Flame className="w-2.5 h-2.5 text-accent" />
-                      {second.current_streak}d
-                    </p>
-                    {isMeSecond && <Badge variant="primary" className="mt-1.5 text-[10px]">You</Badge>}
-                  </CardContent>
-                </Card>
-              )}
-              {third && (
-                <Card className={`overflow-hidden border ${medals[2].border} ${isMeThird ? "ring-2 ring-primary/30" : ""}`}>
-                  <CardContent className="p-3 text-center">
-                    <div className="flex items-center justify-center gap-1.5 mb-2">
-                      <ThirdIcon className={`w-4 h-4 ${medals[2].color}`} />
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${medals[2].color}`}>3rd</span>
-                    </div>
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-sm font-bold text-primary mx-auto mb-1.5">
-                      {getInitials(third.name)}
-                    </div>
-                    <p className="font-bold text-xs truncate">{third.name}</p>
-                    <p className="text-base font-bold text-warning mt-0.5">{third.total_points.toFixed(2)}</p>
-                    <p className="text-[10px] text-muted-foreground inline-flex items-center gap-0.5">
-                      <Flame className="w-2.5 h-2.5 text-accent" />
-                      {third.current_streak}d
-                    </p>
-                    {isMeThird && <Badge variant="primary" className="mt-1.5 text-[10px]">You</Badge>}
-                  </CardContent>
-                </Card>
-              )}
+              {[
+                { entry: second, isMe: isMeSecond, idx: 1, label: "2nd" },
+                { entry: third, isMe: isMeThird, idx: 2, label: "3rd" },
+              ].map((slot) => {
+                if (!slot.entry) return null;
+                const m = medals[slot.idx];
+                const Icon = slot.idx === 1 ? SecondIcon : ThirdIcon;
+                const accent = slot.idx === 1 ? "bg-gray-400" : "bg-amber-600";
+
+                return (
+                  <Card key={slot.entry.user_id} className={`relative overflow-hidden ${slot.isMe ? "border-primary/40 ring-2 ring-primary/20" : "border-border/60"}`}>
+                    {/* Top medal accent bar */}
+                    <div className={`absolute inset-x-0 top-0 h-1 ${accent}`} />
+
+                    <CardContent className="pt-5 pb-4 px-3 text-center">
+                      {/* Medal pill */}
+                      <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${m.bg} ${m.color}`}>
+                        <Icon className="w-3 h-3" />
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider">{slot.label}</span>
+                      </div>
+
+                      {/* Circle avatar with subtle medal-color ring */}
+                      <div className={`relative w-16 h-16 mx-auto mt-2.5 rounded-full p-[2px] ${accent}`}>
+                        <div className="w-full h-full rounded-full bg-card flex items-center justify-center p-0.5">
+                          <div className="w-full h-full rounded-full bg-gradient-to-br from-primary/25 to-accent/25 flex items-center justify-center text-sm font-bold text-primary">
+                            {getInitials(slot.entry.name)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="mt-2 text-sm font-bold leading-tight truncate">{slot.entry.name}</p>
+                      <p className="mt-1.5 text-lg font-extrabold text-warning leading-none tabular-nums truncate">
+                        {slot.entry.total_points.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] font-semibold text-muted-foreground mt-0.5">pts</p>
+
+                      {slot.entry.current_streak > 0 && (
+                        <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[10px] font-extrabold">
+                          <Flame className="w-2.5 h-2.5" />
+                          <span className="tabular-nums">{slot.entry.current_streak}d</span>
+                        </div>
+                      )}
+                      {slot.isMe && <Badge variant="primary" className="mt-1.5 text-[10px]">You</Badge>}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         );
@@ -235,64 +260,75 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
       {/* ====================================================================
           MOBILE FULL LIST — app-style ranked cards
           ==================================================================== */}
-      <div className="sm:hidden space-y-2">
-        <h2 className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">Full Ranking</h2>
+      <div className="sm:hidden">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h2 className="text-xs font-extrabold uppercase tracking-[0.15em] text-muted-foreground">Full Ranking</h2>
+          {entries && entries.length > 0 && (
+            <span className="text-[10px] font-semibold text-muted-foreground tabular-nums">{entries.length} players</span>
+          )}
+        </div>
 
-        {isLoading ? (
-          Array.from({ length: 8 }).map((_, i) => (
-            <Card key={i}><CardContent className="p-3"><div className="h-12 bg-muted rounded-xl animate-pulse" /></CardContent></Card>
-          ))
-        ) : !entries || entries.length === 0 ? (
-          <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">No users on the leaderboard yet</CardContent></Card>
-        ) : (
-          entries.map((entry) => {
-            const isMe = entry.user_id === currentUserId;
-            const medal = medals[entry.rank - 1];
+        <div className="space-y-2">
+          {isLoading ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <Card key={i}><CardContent className="p-3"><div className="h-12 bg-muted rounded-xl animate-pulse" /></CardContent></Card>
+            ))
+          ) : !entries || entries.length === 0 ? (
+            <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">No users on the leaderboard yet</CardContent></Card>
+          ) : (
+            entries.map((entry) => {
+              const isMe = entry.user_id === currentUserId;
+              const medal = medals[entry.rank - 1];
 
-            return (
-              <Card key={entry.user_id} className={`overflow-hidden ${isMe ? "border-primary/40 bg-primary/[0.04]" : ""}`}>
-                <div className="flex items-center gap-3 px-3 py-3">
-                  {/* Rank pill */}
-                  <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0
-                    ${medal ? `${medal.bg} border ${medal.border}` : "bg-muted"}`}>
-                    <span className={`text-[10px] font-bold leading-none ${medal ? medal.color : "text-muted-foreground"}`}>#</span>
-                    <span className={`text-sm font-extrabold leading-none mt-0.5 ${medal ? medal.color : "text-foreground"}`}>{entry.rank}</span>
-                  </div>
+              return (
+                <Card key={entry.user_id} className={`relative overflow-hidden transition-colors active:scale-[0.99] ${isMe ? "border-primary/40 bg-primary/[0.04]" : ""}`}>
+                  {/* Left accent stripe for current user */}
+                  {isMe && <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary to-accent" />}
 
-                  {/* Avatar + name */}
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                    {getInitials(entry.name)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-semibold text-sm truncate">{entry.name}</p>
-                      {isMe && <Badge variant="primary" className="text-[10px] shrink-0">You</Badge>}
+                  <div className="flex items-center gap-2.5 px-3 py-2.5">
+                    {/* Rank pill */}
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0
+                      ${medal ? `${medal.bg} border ${medal.border}` : "bg-muted border border-border/50"}`}>
+                      <span className={`text-sm font-extrabold tabular-nums ${medal ? medal.color : "text-foreground"}`}>{entry.rank}</span>
                     </div>
-                    <div className="flex items-center gap-2.5 mt-0.5 text-[11px] text-muted-foreground">
-                      <span className="inline-flex items-center gap-0.5">
-                        <CheckCircle2 className="w-3 h-3" /> {entry.tasks_completed}
-                      </span>
-                      {entry.current_streak > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
-                          <Flame className="w-3 h-3 text-accent" /> {entry.current_streak}d
+
+                    {/* Avatar */}
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                      {getInitials(entry.name)}
+                    </div>
+
+                    {/* Name + meta — gets all remaining space */}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm truncate">
+                        {entry.name}
+                        {isMe && <span className="ml-1.5 text-[10px] font-bold text-primary">(You)</span>}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-0.5 tabular-nums">
+                          <CheckCircle2 className="w-3 h-3" /> {entry.tasks_completed}
                         </span>
-                      )}
+                        {entry.current_streak > 0 && (
+                          <span className="inline-flex items-center gap-0.5 tabular-nums">
+                            <Flame className="w-3 h-3 text-accent" /> {entry.current_streak}d
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Points — compact, tabular */}
+                    <div className="text-right shrink-0 pl-1">
+                      <p className="text-sm font-extrabold text-warning leading-none inline-flex items-center gap-1 tabular-nums">
+                        <Coins className="w-3 h-3" />
+                        {entry.total_points.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 font-semibold">pts</p>
                     </div>
                   </div>
-
-                  {/* Points */}
-                  <div className="text-right shrink-0">
-                    <p className="text-base font-bold text-warning leading-none inline-flex items-center gap-1">
-                      <Coins className="w-3.5 h-3.5" />
-                      {entry.total_points.toFixed(2)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">pts</p>
-                  </div>
-                </div>
-              </Card>
-            );
-          })
-        )}
+                </Card>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
