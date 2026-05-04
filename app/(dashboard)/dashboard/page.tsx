@@ -13,7 +13,7 @@ export default async function DashboardPage() {
   const [adminStats, userStats, activity, topPerformers] = await Promise.all([
     isAdmin ? getAdminDashboardStats() : null,
     !isAdmin ? getUserDashboardStats() : null,
-    getRecentActivity(8),
+    getRecentActivity(8, isAdmin ? undefined : user.id),
     isAdmin ? getTopPerformers(5) : null,
   ]);
 

@@ -5,7 +5,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { NoticeBoard } from "@/components/shared/notice-board";
 import { SubscriptionBanner } from "@/components/shared/subscription-banner";
 import { Card, CardHeader, CardTitle, CardContent, Badge } from "@/components/ui";
-import { ListTodo, Clock, Trophy, TrendingUp, Users, CheckCircle, ArrowRight } from "lucide-react";
+import { ListTodo, Clock, Trophy, TrendingUp, Users, CheckCircle, ArrowRight, XCircle, Coins, Hourglass, Send } from "lucide-react";
 import { formatRelativeTime, getInitials } from "@/lib/utils";
 import Link from "next/link";
 
@@ -48,16 +48,18 @@ export function DashboardContent({ userName, isAdmin, adminStats, userStats, rec
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Activity */}
+        {/* Recent Activity — admins see platform-wide, users see their own */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle>{isAdmin ? "Recent Activity" : "My Recent Activity"}</CardTitle>
             <Link href="/tasks" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="w-3 h-3" /></Link>
           </CardHeader>
           <CardContent>
             {recentActivity.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No activity yet. Create your first task!</p>
-            ) : (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                {isAdmin ? "No activity yet." : "No activity yet. Pick up a task to start earning points."}
+              </p>
+            ) : isAdmin ? (
               <div className="space-y-3">
                 {recentActivity.map((item) => {
                   const task = item.tasks as Record<string, unknown> | undefined;
@@ -81,6 +83,60 @@ export function DashboardContent({ userName, isAdmin, adminStats, userStats, rec
                         <Badge variant={statusVariant}>{status.replace("_", " ")}</Badge>
                         {time && <span className="text-[11px] text-muted-foreground">{formatRelativeTime(time)}</span>}
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              // User view: outcome-focused — what happened to ME
+              <div className="space-y-2">
+                {recentActivity.map((item) => {
+                  const task = item.tasks as Record<string, unknown> | undefined;
+                  const status = String(item.status || "");
+                  const points = Number(item.points_awarded || 0);
+                  const rejectionReason = item.rejection_reason ? String(item.rejection_reason) : "";
+                  const time = (item.reviewed_at || item.submitted_at) as string | undefined;
+
+                  const meta = (() => {
+                    if (status === "approved") {
+                      return {
+                        Icon: CheckCircle,
+                        tint: "text-success",
+                        bg: "bg-success/10",
+                        label: points > 0 ? `+${points.toFixed(2)} pts earned` : "Approved",
+                      };
+                    }
+                    if (status === "rejected") {
+                      return {
+                        Icon: XCircle,
+                        tint: "text-error",
+                        bg: "bg-error/10",
+                        label: rejectionReason ? `Rejected — ${rejectionReason}` : "Rejected",
+                      };
+                    }
+                    if (status === "submitted") {
+                      return { Icon: Hourglass, tint: "text-accent", bg: "bg-accent/10", label: "Awaiting review" };
+                    }
+                    if (status === "in_progress") {
+                      return { Icon: Send, tint: "text-primary", bg: "bg-primary/10", label: "In progress" };
+                    }
+                    return { Icon: Clock, tint: "text-muted-foreground", bg: "bg-muted", label: "Not started" };
+                  })();
+                  const Icon = meta.Icon;
+
+                  return (
+                    <div key={item.id as number} className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0">
+                      <div className={`w-9 h-9 rounded-xl ${meta.bg} flex items-center justify-center shrink-0`}>
+                        <Icon className={`w-4 h-4 ${meta.tint}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold truncate">{String(task?.title || "Task")}</p>
+                        <p className={`text-xs truncate ${meta.tint}`}>
+                          {status === "approved" && points > 0 && <Coins className="inline w-3 h-3 mr-0.5" />}
+                          {meta.label}
+                        </p>
+                      </div>
+                      {time && <span className="text-[11px] text-muted-foreground shrink-0">{formatRelativeTime(time)}</span>}
                     </div>
                   );
                 })}

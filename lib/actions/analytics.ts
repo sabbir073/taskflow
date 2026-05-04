@@ -36,9 +36,18 @@ export async function getUserDashboardStats() {
   return { myTasks: myTasks.count || 0, pendingTasks: pendingTasks.count || 0, totalPoints, currentRank: currentRank || rankData.length + 1 };
 }
 
-export async function getRecentActivity(limit = 10) {
+// `userId` scopes the feed to that user's own assignments — used for the
+// regular-user dashboard so the activity card shows their own approvals,
+// rejections, and earned points instead of strangers' work.
+// Omit `userId` (admin view) for the platform-wide feed.
+export async function getRecentActivity(limit = 10, userId?: string) {
   const db = getServerClient();
-  const { data } = await db.from("task_assignments").select("id, status, submitted_at, reviewed_at, points_awarded, users!task_assignments_user_id_fkey(name), tasks!inner(title)").order("updated_at", { ascending: false }).limit(limit);
+  let query = db.from("task_assignments")
+    .select("id, status, submitted_at, reviewed_at, points_awarded, rejection_reason, users!task_assignments_user_id_fkey(name), tasks!inner(title)")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  if (userId) query = query.eq("user_id", userId);
+  const { data } = await query;
   return (data || []) as Record<string, unknown>[];
 }
 

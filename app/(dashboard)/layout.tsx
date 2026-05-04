@@ -5,6 +5,7 @@ import { getServerClient } from "@/lib/db/supabase";
 import { dispatchSubscriptionNotifications } from "@/lib/subscription-check";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { BottomNav } from "@/components/layout/bottom-nav";
 import { SettingsProvider } from "@/components/providers/settings-provider";
 import { StatusWatcher } from "@/components/shared/status-watcher";
 import { PopupDisplay } from "@/components/shared/popup-display";
@@ -45,10 +46,14 @@ export default async function DashboardLayout({
         <Sidebar user={user} />
         <div className="flex-1 flex flex-col overflow-hidden">
           <Header user={user} />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+          {/* `pb-24` reserves space for the mobile BottomNav so nothing
+              renders behind it. Desktop (`md:p-6 lg:p-8`) overrides
+              padding fully and the bottom nav is hidden anyway. */}
+          <main className="flex-1 overflow-y-auto p-4 pb-24 md:p-6 lg:p-8">
             {children}
           </main>
         </div>
+        <BottomNav />
       </div>
     </SettingsProvider>
   );

@@ -160,6 +160,11 @@ body {
   background: var(--foreground);
 }
 
+/* Hide scrollbar utility — used by horizontal tab strips so the swipeable
+   bar doesn't show a visible track on mobile. */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+
 /* Focus ring - exclude form inputs (they handle their own focus styles) */
 *:focus-visible {
   outline: 2px solid var(--primary);

@@ -61,6 +61,7 @@ export function GroupDetail({ data: initialData, currentUserId, isAdmin }: Props
   const [requestReason, setRequestReason] = useState("");
   const [rejectDialog, setRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<{ userId: string; name: string } | null>(null);
   const [openSection, setOpenSection] = useState<string | null>(null);
   const toggleSection = (key: string) => setOpenSection((prev) => (prev === key ? null : key));
 
@@ -330,7 +331,7 @@ export function GroupDetail({ data: initialData, currentUserId, isAdmin }: Props
                         </div>
                       </div>
                       {(isAdmin || isLeader) && !isThisLeader && userId !== currentUserId && (
-                        <Btn variant="ghost" size="sm" disabled={removeMember.isPending} onClick={() => removeMember.mutate({ groupId, userId })}>
+                        <Btn variant="ghost" size="sm" disabled={removeMember.isPending} onClick={() => setRemoveMemberTarget({ userId, name: memberName })}>
                           <UserMinus className="w-4 h-4" />
                         </Btn>
                       )}
@@ -396,6 +397,20 @@ export function GroupDetail({ data: initialData, currentUserId, isAdmin }: Props
         description={`This permanently removes "${name}" and its memberships. This cannot be undone.`}
         confirmLabel="Delete Group"
         isLoading={deleteGroup.isPending}
+      />
+
+      {/* Confirm remove member */}
+      <ConfirmDialog
+        isOpen={!!removeMemberTarget}
+        onClose={() => setRemoveMemberTarget(null)}
+        onConfirm={() => {
+          if (removeMemberTarget) removeMember.mutate({ groupId, userId: removeMemberTarget.userId });
+          setRemoveMemberTarget(null);
+        }}
+        title="Remove member?"
+        description={removeMemberTarget ? `${removeMemberTarget.name} will be removed from "${name}". They can be re-added later.` : ""}
+        confirmLabel="Remove Member"
+        isLoading={removeMember.isPending}
       />
 
       {/* Suspend modal */}

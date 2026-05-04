@@ -6,6 +6,7 @@ import { Card, CardContent, Input, Select, Btn, Badge } from "@/components/ui";
 import { Search, CheckCircle, XCircle, Coins, Trash2, User as UserIcon } from "lucide-react";
 import { getTasks, approveTask, rejectTask, deleteTask } from "@/lib/actions/tasks";
 import { EmptyState } from "./empty-state";
+import { ConfirmDialog } from "./confirm-dialog";
 import { formatDate } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ export function ManageTasksView() {
   const [page, setPage] = useState(1);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -122,7 +124,7 @@ export function ManageTasksView() {
                         )}
                       </>
                     )}
-                    <Btn variant="ghost" size="sm" className="ml-auto text-error" onClick={() => remove.mutate(taskId)} disabled={remove.isPending}>
+                    <Btn variant="ghost" size="sm" className="ml-auto text-error" onClick={() => setDeleteTarget({ id: taskId, title })} disabled={remove.isPending}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Btn>
                   </div>
@@ -142,6 +144,16 @@ export function ManageTasksView() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) remove.mutate(deleteTarget.id); setDeleteTarget(null); }}
+        title="Delete task?"
+        description={deleteTarget ? `This permanently removes "${deleteTarget.title}" and all its assignments. This cannot be undone.` : ""}
+        confirmLabel="Delete Task"
+        isLoading={remove.isPending}
+      />
     </div>
   );
 }

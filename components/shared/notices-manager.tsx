@@ -6,6 +6,7 @@ import { Megaphone, Plus, Edit2, Trash2, X, Save, Eye, EyeOff } from "lucide-rea
 import { useAllNotices, useCreateNotice, useUpdateNotice, useDeleteNotice } from "@/hooks/use-notices";
 import { formatRelativeTime } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { RichTextEditor, RichTextContent } from "@/components/shared/rich-text-editor";
 
 export function NoticesManager() {
@@ -22,6 +23,7 @@ export function NoticesManager() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
 
   async function handleCreate() {
     if (!newTitle.trim()) { setNewError("Title is required"); return; }
@@ -46,9 +48,8 @@ export function NoticesManager() {
     await updateNotice.mutateAsync({ id, data: { is_active: !currentActive } });
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("Delete this notice? This cannot be undone.")) return;
-    await deleteNotice.mutateAsync(id);
+  function handleDelete(id: number, title: string) {
+    setDeleteTarget({ id, title });
   }
 
   const items = notices || [];
@@ -144,7 +145,7 @@ export function NoticesManager() {
                         <Btn variant="ghost" size="sm" type="button" onClick={() => startEdit(n)}>
                           <Edit2 className="w-4 h-4" />
                         </Btn>
-                        <Btn variant="ghost" size="sm" type="button" onClick={() => handleDelete(id)}>
+                        <Btn variant="ghost" size="sm" type="button" onClick={() => handleDelete(id, String(n.title || ""))}>
                           <Trash2 className="w-4 h-4 text-error" />
                         </Btn>
                       </div>
@@ -156,6 +157,19 @@ export function NoticesManager() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (deleteTarget) await deleteNotice.mutateAsync(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        title="Delete notice?"
+        description={deleteTarget ? `"${deleteTarget.title}" will be permanently removed. This cannot be undone.` : ""}
+        confirmLabel="Delete Notice"
+        isLoading={deleteNotice.isPending}
+      />
     </div>
   );
 }

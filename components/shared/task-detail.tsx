@@ -104,11 +104,32 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
               );
             })()}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-border/50">
+            {/* DESKTOP stats — original 4-up muted tiles */}
+            <div className="hidden sm:grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-border/50">
               <div className="p-3 rounded-xl bg-muted/40"><p className="text-xs text-muted-foreground">Points/Task</p><p className="font-bold text-primary">{Number(task.points_per_completion || task.points || 0).toFixed(2)}</p></div>
               <div className="p-3 rounded-xl bg-muted/40"><p className="text-xs text-muted-foreground">Priority</p><p className="font-semibold capitalize">{String(task.priority)}</p></div>
               <div className="p-3 rounded-xl bg-muted/40"><p className="text-xs text-muted-foreground">Deadline</p><p className="font-medium">{task.deadline ? formatDate(String(task.deadline)) : "None"}</p></div>
               <div className="p-3 rounded-xl bg-muted/40"><p className="text-xs text-muted-foreground">Budget</p><p className="font-bold text-warning">{Number(task.point_budget || 0).toFixed(2)} pts</p></div>
+            </div>
+
+            {/* MOBILE stats — 2x2 app-style cards with brand accents */}
+            <div className="sm:hidden grid grid-cols-2 gap-2 pt-4 border-t border-border/50">
+              <div className="rounded-xl bg-primary/5 border border-primary/10 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Points/Task</p>
+                <p className="mt-1 text-base font-bold text-foreground">{Number(task.points_per_completion || task.points || 0).toFixed(2)}<span className="text-xs font-normal text-muted-foreground"> pts</span></p>
+              </div>
+              <div className="rounded-xl bg-warning/5 border border-warning/10 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-warning">Budget</p>
+                <p className="mt-1 text-base font-bold text-foreground">{Number(task.point_budget || 0).toFixed(2)}<span className="text-xs font-normal text-muted-foreground"> pts</span></p>
+              </div>
+              <div className="rounded-xl bg-muted/40 border border-border/40 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</p>
+                <p className="mt-1 text-sm font-semibold capitalize text-foreground">{String(task.priority)}</p>
+              </div>
+              <div className="rounded-xl bg-muted/40 border border-border/40 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deadline</p>
+                <p className="mt-1 text-sm font-medium text-foreground">{task.deadline ? formatDate(String(task.deadline)) : "None"}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -392,31 +413,65 @@ function GroupLeaderStatusRow({ assignment }: { assignment: Record<string, unkno
   })();
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-xl border border-border/40 hover:bg-muted/30 transition-colors">
-      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-        {getInitials(name)}
+    <>
+      {/* DESKTOP — single inline row, untouched */}
+      <div className="hidden sm:flex items-center gap-3 p-3 rounded-xl border border-border/40 hover:bg-muted/30 transition-colors">
+        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+          {getInitials(name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{name}</p>
+          <p className="text-xs text-muted-foreground truncate">{email}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {statusBadge}
+          {submittedAt && (
+            <span className="text-[11px] text-muted-foreground">{formatDate(submittedAt)}</span>
+          )}
+          {canNotify && (
+            <Btn
+              size="sm"
+              variant="outline"
+              isLoading={notifySubmit.isPending}
+              onClick={() => notifySubmit.mutate(assignment.id as number)}
+            >
+              <Bell className="w-3.5 h-3.5 mr-1" /> Remind
+            </Btn>
+          )}
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{name}</p>
-        <p className="text-xs text-muted-foreground truncate">{email}</p>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {statusBadge}
+
+      {/* MOBILE — app-style card with stacked header + full-width remind button */}
+      <div className="sm:hidden rounded-2xl border border-border/40 overflow-hidden bg-card">
+        <div className="flex items-start gap-3 px-4 pt-4">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary/25 to-accent/25 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+            {getInitials(name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold leading-tight truncate">{name}</p>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{email}</p>
+          </div>
+          <div className="shrink-0">{statusBadge}</div>
+        </div>
         {submittedAt && (
-          <span className="text-[11px] text-muted-foreground hidden sm:inline">{formatDate(submittedAt)}</span>
+          <p className="px-4 mt-2 text-[11px] text-muted-foreground">Submitted {formatDate(submittedAt)}</p>
         )}
         {canNotify && (
-          <Btn
-            size="sm"
-            variant="outline"
-            isLoading={notifySubmit.isPending}
-            onClick={() => notifySubmit.mutate(assignment.id as number)}
-          >
-            <Bell className="w-3.5 h-3.5 mr-1" /> Remind
-          </Btn>
+          <div className="mt-3 px-4 py-3 border-t border-border/50 bg-muted/20">
+            <Btn
+              size="sm"
+              variant="outline"
+              className="w-full"
+              isLoading={notifySubmit.isPending}
+              onClick={() => notifySubmit.mutate(assignment.id as number)}
+            >
+              <Bell className="w-3.5 h-3.5 mr-1.5" /> Send Reminder
+            </Btn>
+          </div>
         )}
+        {!canNotify && <div className="h-3" />}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -451,63 +506,151 @@ function AssignmentRow({
     <p className="text-sm font-semibold">{name}</p>
   );
 
+  const proofUrls = (assignment.proof_urls as string[]) || [];
+  const proofShots = (assignment.proof_screenshots as string[]) || [];
+  const hasProof = proofUrls.length > 0 || proofShots.length > 0;
+  const statusVariant = status === "approved" ? "success" : status === "rejected" ? "error" : status === "submitted" ? "accent" : "default";
+
   return (
-    <div className="border border-border/50 rounded-xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
-          <div>
-            {nameEl}
-            <p className="text-xs text-muted-foreground">{String(user?.email || "")}</p>
+    <>
+      {/* DESKTOP — original layout, untouched */}
+      <div className="hidden sm:block border border-border/50 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
+            <div>
+              {nameEl}
+              <p className="text-xs text-muted-foreground">{String(user?.email || "")}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={statusVariant}>{status.replace("_", " ")}</Badge>
+            {canNotify && (
+              <Btn
+                variant="ghost"
+                size="sm"
+                title="Send reminder to submit"
+                disabled={notifySubmit.isPending}
+                onClick={() => notifySubmit.mutate(assignment.id as number)}
+              >
+                <Bell className="w-3.5 h-3.5" /> Notify
+              </Btn>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={status === "approved" ? "success" : status === "rejected" ? "error" : status === "submitted" ? "accent" : "default"}>
-            {status.replace("_", " ")}
-          </Badge>
-          {canNotify && (
-            <Btn
-              variant="ghost"
-              size="sm"
-              title="Send reminder to submit"
-              disabled={notifySubmit.isPending}
-              onClick={() => notifySubmit.mutate(assignment.id as number)}
-            >
-              <Bell className="w-3.5 h-3.5" /> Notify
-            </Btn>
-          )}
-        </div>
+
+        {hasProof && (
+          <div className="flex gap-3 flex-wrap">
+            {proofUrls.map((url, i) => (
+              <a key={`u${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ExternalLink className="w-3 h-3" /> URL {i + 1}</a>
+            ))}
+            {proofShots.map((url, i) => (
+              <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ImageIcon className="w-3 h-3" /> Screenshot {i + 1}</a>
+            ))}
+          </div>
+        )}
+
+        {!!assignment.proof_notes && <p className="text-xs text-muted-foreground">{String(assignment.proof_notes)}</p>}
+
+        {status === "submitted" && isAdmin && (
+          <div className="flex gap-2 pt-2 border-t border-border/50">
+            <Btn size="sm" onClick={() => review.mutate({ assignmentId: assignment.id as number, action: "approve" })} disabled={review.isPending}><CheckCircle className="w-3 h-3 mr-1" /> Approve</Btn>
+            {!showReject ? (
+              <Btn variant="outline" size="sm" onClick={() => setShowReject(true)}><XCircle className="w-3 h-3 mr-1" /> Reject</Btn>
+            ) : (
+              <div className="flex-1 flex gap-2">
+                <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason..." className="h-9 text-xs" />
+                <Btn variant="danger" size="sm" disabled={!rejectReason || review.isPending} onClick={() => { review.mutate({ assignmentId: assignment.id as number, action: "reject", reason: rejectReason }); setShowReject(false); setRejectReason(""); }}>Confirm</Btn>
+              </div>
+            )}
+          </div>
+        )}
+
+        {status === "rejected" && !!assignment.rejection_reason && <p className="text-xs text-error">Reason: {String(assignment.rejection_reason)}</p>}
       </div>
 
-      {(((assignment.proof_urls as string[]) || []).length > 0 || ((assignment.proof_screenshots as string[]) || []).length > 0) && (
-        <div className="flex gap-3 flex-wrap">
-          {((assignment.proof_urls as string[]) || []).map((url, i) => (
-            <a key={`u${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ExternalLink className="w-3 h-3" /> URL {i + 1}</a>
-          ))}
-          {((assignment.proof_screenshots as string[]) || []).map((url, i) => (
-            <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><ImageIcon className="w-3 h-3" /> Screenshot {i + 1}</a>
-          ))}
+      {/* MOBILE — app-style card */}
+      <div className="sm:hidden rounded-2xl border border-border/50 overflow-hidden bg-card">
+        {/* Header: avatar + name + status badge */}
+        <div className="flex items-start gap-3 px-4 pt-4">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary/25 to-accent/25 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+            {getInitials(name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            {nameEl}
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{String(user?.email || "")}</p>
+          </div>
+          <Badge variant={statusVariant} className="shrink-0">{status.replace("_", " ")}</Badge>
         </div>
-      )}
 
-      {!!assignment.proof_notes && <p className="text-xs text-muted-foreground">{String(assignment.proof_notes)}</p>}
+        {/* Proof chips */}
+        {hasProof && (
+          <div className="px-4 mt-3 flex flex-wrap gap-2">
+            {proofUrls.map((url, i) => (
+              <a key={`u${i}`} href={url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+                <ExternalLink className="w-3 h-3" /> URL {i + 1}
+              </a>
+            ))}
+            {proofShots.map((url, i) => (
+              <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs font-semibold">
+                <ImageIcon className="w-3 h-3" /> Screenshot {i + 1}
+              </a>
+            ))}
+          </div>
+        )}
 
-      {status === "submitted" && isAdmin && (
-        <div className="flex gap-2 pt-2 border-t border-border/50">
-          <Btn size="sm" onClick={() => review.mutate({ assignmentId: assignment.id as number, action: "approve" })} disabled={review.isPending}><CheckCircle className="w-3 h-3 mr-1" /> Approve</Btn>
-          {!showReject ? (
-            <Btn variant="outline" size="sm" onClick={() => setShowReject(true)}><XCircle className="w-3 h-3 mr-1" /> Reject</Btn>
-          ) : (
-            <div className="flex-1 flex gap-2">
-              <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason..." className="h-9 text-xs" />
-              <Btn variant="danger" size="sm" disabled={!rejectReason || review.isPending} onClick={() => { review.mutate({ assignmentId: assignment.id as number, action: "reject", reason: rejectReason }); setShowReject(false); setRejectReason(""); }}>Confirm</Btn>
-            </div>
-          )}
-        </div>
-      )}
+        {/* Notes */}
+        {!!assignment.proof_notes && (
+          <p className="px-4 mt-3 text-xs text-muted-foreground italic leading-relaxed">&ldquo;{String(assignment.proof_notes)}&rdquo;</p>
+        )}
 
-      {status === "rejected" && !!assignment.rejection_reason && <p className="text-xs text-error">Reason: {String(assignment.rejection_reason)}</p>}
-    </div>
+        {/* Rejection reason */}
+        {status === "rejected" && !!assignment.rejection_reason && (
+          <div className="mx-4 mt-3 rounded-lg bg-error/10 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-error">Rejection reason</p>
+            <p className="text-xs text-error mt-0.5">{String(assignment.rejection_reason)}</p>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        {(status === "submitted" && isAdmin) || canNotify ? (
+          <div className="mt-4 px-4 py-3 border-t border-border/50 bg-muted/20">
+            {status === "submitted" && isAdmin ? (
+              showReject ? (
+                <div className="flex flex-col gap-2">
+                  <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Rejection reason..." className="h-9 text-xs" autoFocus />
+                  <div className="flex gap-2">
+                    <Btn variant="danger" size="sm" className="flex-1" disabled={!rejectReason || review.isPending}
+                      onClick={() => { review.mutate({ assignmentId: assignment.id as number, action: "reject", reason: rejectReason }); setShowReject(false); setRejectReason(""); }}>
+                      Confirm Reject
+                    </Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => { setShowReject(false); setRejectReason(""); }}>Cancel</Btn>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Btn size="sm" className="flex-1" onClick={() => review.mutate({ assignmentId: assignment.id as number, action: "approve" })} disabled={review.isPending}>
+                    <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
+                  </Btn>
+                  <Btn variant="outline" size="sm" className="flex-1" onClick={() => setShowReject(true)}>
+                    <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
+                  </Btn>
+                </div>
+              )
+            ) : canNotify ? (
+              <Btn variant="outline" size="sm" className="w-full" disabled={notifySubmit.isPending}
+                onClick={() => notifySubmit.mutate(assignment.id as number)}>
+                <Bell className="w-3.5 h-3.5 mr-1.5" /> Send Reminder
+              </Btn>
+            ) : null}
+          </div>
+        ) : (
+          <div className="h-3" />
+        )}
+      </div>
+    </>
   );
 }
 

@@ -6,6 +6,7 @@ import { Card, CardContent, Btn } from "@/components/ui";
 import { Bell, CheckCircle, XCircle, Trophy, Award, Users, Settings, CheckCheck, Trash2 } from "lucide-react";
 import { getNotifications, markAsRead, markAllAsRead, deleteNotification } from "@/lib/actions/notifications";
 import { EmptyState } from "./empty-state";
+import { ConfirmDialog } from "./confirm-dialog";
 import { formatRelativeTime } from "@/lib/utils";
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
@@ -15,6 +16,7 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
 
 export function NotificationsList() {
   const [page, setPage] = useState(1);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["notifications", page],
@@ -58,7 +60,7 @@ export function NotificationsList() {
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {!isRead && <Btn variant="ghost" size="sm" onClick={() => markRead.mutate(id)}><CheckCircle className="w-4 h-4" /></Btn>}
-                  <Btn variant="ghost" size="sm" onClick={() => deleteOne.mutate(id)}><Trash2 className="w-4 h-4 text-muted-foreground" /></Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => setDeleteId(id)}><Trash2 className="w-4 h-4 text-muted-foreground" /></Btn>
                 </div>
               </CardContent>
             </Card>
@@ -74,6 +76,16 @@ export function NotificationsList() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={deleteId !== null}
+        onClose={() => setDeleteId(null)}
+        onConfirm={() => { if (deleteId !== null) deleteOne.mutate(deleteId); setDeleteId(null); }}
+        title="Delete notification?"
+        description="This notification will be permanently removed."
+        confirmLabel="Delete"
+        isLoading={deleteOne.isPending}
+      />
     </div>
   );
 }

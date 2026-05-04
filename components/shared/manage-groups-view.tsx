@@ -6,6 +6,7 @@ import { Card, CardContent, Input, Select, Btn, Badge } from "@/components/ui";
 import { Search, CheckCircle, XCircle, Users, Trash2, User as UserIcon } from "lucide-react";
 import { getAllGroups, approveGroup, rejectGroup, deleteGroup } from "@/lib/actions/groups";
 import { EmptyState } from "./empty-state";
+import { ConfirmDialog } from "./confirm-dialog";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -14,6 +15,7 @@ export function ManageGroupsView() {
   const [search, setSearch] = useState("");
   const [approvalFilter, setApprovalFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -107,7 +109,7 @@ export function ManageGroupsView() {
                         </Btn>
                       </>
                     )}
-                    <Btn variant="ghost" size="sm" className="ml-auto text-error" onClick={() => remove.mutate(groupId)} disabled={remove.isPending}>
+                    <Btn variant="ghost" size="sm" className="ml-auto text-error" onClick={() => setDeleteTarget({ id: groupId, name })} disabled={remove.isPending}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Btn>
                   </div>
@@ -127,6 +129,16 @@ export function ManageGroupsView() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) remove.mutate(deleteTarget.id); setDeleteTarget(null); }}
+        title="Delete group?"
+        description={deleteTarget ? `This permanently removes "${deleteTarget.name}" and all its memberships. This cannot be undone.` : ""}
+        confirmLabel="Delete Group"
+        isLoading={remove.isPending}
+      />
     </div>
   );
 }
