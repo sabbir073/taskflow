@@ -345,6 +345,7 @@ export function UsersTable() {
               const vJoined = String(vu?.created_at || "");
               const vPhone = String(vp?.phone || "");
               const vApproved = vp?.is_approved !== false;
+              const vSub = viewProfile.subscription as Record<string, unknown> | null;
 
               return (
                 <>
@@ -371,6 +372,52 @@ export function UsersTable() {
                         {!vApproved && <Badge variant="warning">Pending Approval</Badge>}
                       </div>
                     </div>
+
+                    {/* Subscription / plan */}
+                    {vSub ? (() => {
+                      const planName = String(vSub.planName || "Plan");
+                      const period = String(vSub.periodType || "monthly") as BillingPeriod;
+                      const expiresAt = vSub.expiresAt ? String(vSub.expiresAt) : null;
+                      const isExpired = !!vSub.isExpired;
+                      const credits = Number(vSub.includedCredits || 0);
+                      const maxTasks = vSub.maxTasks as number | null;
+                      const maxGroups = vSub.maxGroups as number | null;
+                      return (
+                        <div className={`mb-4 p-3 rounded-xl border ${isExpired ? "border-warning/30 bg-warning/5" : "border-primary/30 bg-primary/5"}`}>
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${isExpired ? "bg-warning/15 text-warning" : "bg-primary/15 text-primary"}`}>
+                              <CreditCard className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-bold truncate">{planName}</p>
+                                <Badge variant={isExpired ? "warning" : "primary"}>
+                                  {isExpired ? "Expired" : (PERIOD_LABEL[period] || period)}
+                                </Badge>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                {expiresAt ? `${isExpired ? "Expired" : "Renews"} ${formatDate(expiresAt)}` : "No expiration"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/40 text-[11px] text-muted-foreground">
+                            <span><strong className="text-foreground">{maxTasks ?? "∞"}</strong> tasks</span>
+                            <span><strong className="text-foreground">{maxGroups ?? "∞"}</strong> groups</span>
+                            <span><strong className="text-foreground">{credits.toFixed(0)}</strong> credits</span>
+                          </div>
+                        </div>
+                      );
+                    })() : (
+                      <div className="mb-4 p-3 rounded-xl border border-border/50 bg-muted/30 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
+                          <CreditCard className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">No active plan</p>
+                          <p className="text-[11px] text-muted-foreground">User is on the free tier</p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Stats grid */}
                     <div className="grid grid-cols-4 gap-3 mb-4">
