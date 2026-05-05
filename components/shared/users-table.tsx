@@ -327,10 +327,10 @@ export function UsersTable() {
 
       {/* User Profile Modal */}
       {(viewProfile || loadingProfile) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setViewProfile(null)}>
-          <div className="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/50 flex sm:items-center sm:justify-center sm:p-4" onClick={() => setViewProfile(null)}>
+          <div className="flex flex-col w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[90vh] bg-card sm:rounded-2xl shadow-2xl sm:border border-border overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {loadingProfile ? (
-              <div className="p-12 text-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+              <div className="flex-1 flex items-center justify-center p-12"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
             ) : viewProfile ? (() => {
               const vu = viewProfile.user as Record<string, unknown>;
               const vp = viewProfile.profile as Record<string, unknown> | null;
@@ -350,77 +350,75 @@ export function UsersTable() {
               return (
                 <>
                   {/* Header */}
-                  <div className="h-20 bg-gradient-to-r from-primary to-accent relative">
-                    <button onClick={() => setViewProfile(null)} className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/20 text-white hover:bg-black/40 transition-colors">
+                  <div className="h-20 bg-gradient-to-r from-primary to-accent relative flex-shrink-0">
+                    <button onClick={() => setViewProfile(null)} className="absolute top-3 right-3 p-2 rounded-lg bg-black/20 text-white hover:bg-black/40 transition-colors">
                       <X className="w-4 h-4" />
                     </button>
-                    <div className="absolute -bottom-8 left-6">
+                    <div className="absolute -bottom-8 left-5 sm:left-6">
                       <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xl font-bold border-4 border-card shadow-lg">
                         {getInitials(vName)}
                       </div>
                     </div>
                   </div>
 
-                  <div className="pt-12 px-6 pb-6">
-                    {/* Name + badges */}
-                    <div className="mb-4">
-                      <h3 className="text-lg font-bold">{vName}</h3>
-                      <p className="text-sm text-muted-foreground">{vEmail}</p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="primary">{ROLE_LABELS[vRole] || vRole}</Badge>
-                        <Badge variant={STATUS_VARIANT[vStatus] || "default"}>{vStatus}</Badge>
-                        {!vApproved && <Badge variant="warning">Pending Approval</Badge>}
+                  <div className="flex-1 overflow-y-auto pt-12 px-5 sm:px-6 pb-4">
+                    {/* Identity row: name/email/badges on left, plan card on right (sm+) */}
+                    <div className="mb-4 flex flex-col sm:flex-row sm:items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-bold break-words">{vName}</h3>
+                        <p className="text-sm text-muted-foreground break-all">{vEmail}</p>
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          <Badge variant="primary">{ROLE_LABELS[vRole] || vRole}</Badge>
+                          <Badge variant={STATUS_VARIANT[vStatus] || "default"}>{vStatus}</Badge>
+                          {!vApproved && <Badge variant="warning">Pending Approval</Badge>}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Subscription / plan */}
-                    {vSub ? (() => {
-                      const planName = String(vSub.planName || "Plan");
-                      const period = String(vSub.periodType || "monthly") as BillingPeriod;
-                      const expiresAt = vSub.expiresAt ? String(vSub.expiresAt) : null;
-                      const isExpired = !!vSub.isExpired;
-                      const credits = Number(vSub.includedCredits || 0);
-                      const maxTasks = vSub.maxTasks as number | null;
-                      const maxGroups = vSub.maxGroups as number | null;
-                      return (
-                        <div className={`mb-4 p-3 rounded-xl border ${isExpired ? "border-warning/30 bg-warning/5" : "border-primary/30 bg-primary/5"}`}>
-                          <div className="flex items-center gap-3">
-                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${isExpired ? "bg-warning/15 text-warning" : "bg-primary/15 text-primary"}`}>
-                              <CreditCard className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className="text-sm font-bold truncate">{planName}</p>
+                      {/* Subscription / plan — compact card on the right */}
+                      <div className="sm:w-56 sm:flex-shrink-0">
+                        {vSub ? (() => {
+                          const planName = String(vSub.planName || "Plan");
+                          const period = String(vSub.periodType || "monthly") as BillingPeriod;
+                          const expiresAt = vSub.expiresAt ? String(vSub.expiresAt) : null;
+                          const isExpired = !!vSub.isExpired;
+                          const credits = Number(vSub.includedCredits || 0);
+                          const maxTasks = vSub.maxTasks as number | null;
+                          const maxGroups = vSub.maxGroups as number | null;
+                          return (
+                            <div className={`p-3 rounded-xl border ${isExpired ? "border-warning/30 bg-warning/5" : "border-primary/30 bg-primary/5"}`}>
+                              <div className="flex items-center gap-2">
+                                <CreditCard className={`w-4 h-4 flex-shrink-0 ${isExpired ? "text-warning" : "text-primary"}`} />
+                                <p className="text-sm font-bold truncate flex-1">{planName}</p>
                                 <Badge variant={isExpired ? "warning" : "primary"}>
                                   {isExpired ? "Expired" : (PERIOD_LABEL[period] || period)}
                                 </Badge>
                               </div>
-                              <p className="text-[11px] text-muted-foreground mt-0.5">
-                                {expiresAt ? `${isExpired ? "Expired" : "Renews"} ${formatDate(expiresAt)}` : "No expiration"}
-                              </p>
+                              {expiresAt && (
+                                <p className="text-[11px] text-muted-foreground mt-1">
+                                  {isExpired ? "Expired" : "Renews"} {formatDate(expiresAt)}
+                                </p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-2 pt-2 border-t border-border/40 text-[11px] text-muted-foreground">
+                                <span><strong className="text-foreground">{maxTasks ?? "∞"}</strong> tasks</span>
+                                <span><strong className="text-foreground">{maxGroups ?? "∞"}</strong> groups</span>
+                                <span><strong className="text-foreground">{credits.toFixed(0)}</strong> credits</span>
+                              </div>
                             </div>
+                          );
+                        })() : (
+                          <div className="p-3 rounded-xl border border-border/50 bg-muted/30">
+                            <div className="flex items-center gap-2">
+                              <CreditCard className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                              <p className="text-sm font-medium flex-1">No active plan</p>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-1">Free tier</p>
                           </div>
-                          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/40 text-[11px] text-muted-foreground">
-                            <span><strong className="text-foreground">{maxTasks ?? "∞"}</strong> tasks</span>
-                            <span><strong className="text-foreground">{maxGroups ?? "∞"}</strong> groups</span>
-                            <span><strong className="text-foreground">{credits.toFixed(0)}</strong> credits</span>
-                          </div>
-                        </div>
-                      );
-                    })() : (
-                      <div className="mb-4 p-3 rounded-xl border border-border/50 bg-muted/30 flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
-                          <CreditCard className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">No active plan</p>
-                          <p className="text-[11px] text-muted-foreground">User is on the free tier</p>
-                        </div>
+                        )}
                       </div>
-                    )}
+                    </div>
 
                     {/* Stats grid */}
-                    <div className="grid grid-cols-4 gap-3 mb-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
                       {[
                         { icon: Trophy, label: "Points", value: vPoints.toFixed(2), color: "text-warning", bg: "bg-warning/10" },
                         { icon: Target, label: "Tasks", value: String(vTasks), color: "text-success", bg: "bg-success/10" },
@@ -429,7 +427,7 @@ export function UsersTable() {
                       ].map((s) => (
                         <div key={s.label} className="p-3 rounded-xl bg-muted/40 text-center">
                           <s.icon className={`w-4 h-4 ${s.color} mx-auto mb-1`} />
-                          <p className="text-sm font-bold">{s.value}</p>
+                          <p className="text-sm font-bold truncate">{s.value}</p>
                           <p className="text-[10px] text-muted-foreground">{s.label}</p>
                         </div>
                       ))}
@@ -453,19 +451,19 @@ export function UsersTable() {
                       </div>
                     </div>
 
-                    {/* Quick actions */}
-                    <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
-                      <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setPointsMode("assign"); setViewProfile(null); }}>
-                        <Plus className="w-3.5 h-3.5 mr-1 text-success" /> Assign
-                      </Btn>
-                      <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setPointsMode("deduct"); setViewProfile(null); }}>
-                        <Minus className="w-3.5 h-3.5 mr-1 text-error" /> Deduct
-                      </Btn>
-                      <Btn variant="outline" size="sm" onClick={() => { setPlanTarget(String(vu?.id || "")); setViewProfile(null); }}>
-                        <CreditCard className="w-3.5 h-3.5 mr-1" /> Plan
-                      </Btn>
-                      <Btn variant="ghost" size="sm" className="ml-auto" onClick={() => setViewProfile(null)}>Close</Btn>
-                    </div>
+                  </div>
+
+                  {/* Sticky action bar — app-style bottom toolbar */}
+                  <div className="flex-shrink-0 grid grid-cols-3 gap-2 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border/50 bg-card">
+                    <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setPointsMode("assign"); setViewProfile(null); }}>
+                      <Plus className="w-3.5 h-3.5 mr-1 text-success" /> Assign
+                    </Btn>
+                    <Btn variant="outline" size="sm" onClick={() => { setPointsTarget(String(vu?.id || "")); setPointsMode("deduct"); setViewProfile(null); }}>
+                      <Minus className="w-3.5 h-3.5 mr-1 text-error" /> Deduct
+                    </Btn>
+                    <Btn variant="outline" size="sm" onClick={() => { setPlanTarget(String(vu?.id || "")); setViewProfile(null); }}>
+                      <CreditCard className="w-3.5 h-3.5 mr-1" /> Plan
+                    </Btn>
                   </div>
                 </>
               );

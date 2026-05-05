@@ -63,7 +63,7 @@ export function NoticeBoard() {
     <>
       {/* ---- Marquee-style ticker ---- */}
       <div
-        className="mb-6 rounded-xl overflow-hidden bg-[#1a1a2e] dark:bg-[#0f0f1a] text-white shadow-lg"
+        className="mb-6 rounded-xl overflow-hidden bg-gradient-to-r from-primary/10 via-primary/5 to-accent/10 border border-primary/20 shadow-sm"
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
       >
@@ -87,7 +87,7 @@ export function NoticeBoard() {
                     key={n.id as number}
                     type="button"
                     onClick={() => setOpenNotice(n)}
-                    className={`absolute inset-0 text-left text-sm font-medium truncate transition-all duration-300 ease-out cursor-pointer hover:text-accent
+                    className={`absolute inset-0 text-left text-sm font-medium truncate text-foreground transition-all duration-300 ease-out cursor-pointer hover:text-primary
                       ${isActive && !animating ? "opacity-100 translate-y-0" : ""}
                       ${isActive && animating ? (slideDir === "up" ? "opacity-0 -translate-y-full" : "opacity-0 translate-y-full") : ""}
                       ${!isActive && !animating ? "opacity-0 translate-y-full" : ""}
@@ -105,15 +105,15 @@ export function NoticeBoard() {
           <div className="flex items-center gap-1 px-3 shrink-0">
             {items.length > 1 && (
               <>
-                <span className="text-[10px] text-white/50 font-mono mr-1">
+                <span className="text-[10px] text-muted-foreground font-mono mr-1">
                   {String(activeIdx + 1).padStart(2, "0")}/{String(items.length).padStart(2, "0")}
                 </span>
                 <button type="button" onClick={() => slideTo((activeIdx - 1 + items.length) % items.length, "down")}
-                  className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+                  className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
                 <button type="button" onClick={() => slideTo((activeIdx + 1) % items.length, "up")}
-                  className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+                  className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </>
@@ -121,7 +121,7 @@ export function NoticeBoard() {
             <button
               type="button"
               onClick={() => setOpenNotice(current)}
-              className="ml-1 text-[11px] font-semibold text-accent hover:text-accent/80 transition-colors"
+              className="ml-1 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
             >
               View
             </button>
@@ -130,7 +130,7 @@ export function NoticeBoard() {
 
         {/* Thin animated progress bar */}
         {items.length > 1 && !paused && (
-          <div className="h-0.5 bg-white/5">
+          <div className="h-0.5 bg-primary/10">
             <div
               key={activeIdx}
               className="h-full bg-gradient-to-r from-primary to-accent"
