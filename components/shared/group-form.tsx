@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Input, Label, Select, Textarea, Btn, FieldError } from "@/components/ui";
 import { Upload, X, ImagePlus, Users } from "lucide-react";
 import { useCreateGroup } from "@/hooks/use-groups";
@@ -13,9 +13,13 @@ import type { GroupFormData } from "@/types";
 export function GroupForm() {
   const router = useRouter();
   const createGroup = useCreateGroup();
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<GroupFormData>({
+  const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<GroupFormData>({
     defaultValues: { privacy: "public", max_members: 50, category: "Other", rules: "" },
   });
+  // useWatch lets the React Compiler memoize child components that consume
+  // this value — `watch()` returns a fresh function each render, defeating
+  // memoization (react-hooks/incompatible-library lint rule).
+  const watchedRules = useWatch({ control, name: "rules" });
 
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [coverUrl, setCoverUrl] = useState<string>("");
@@ -142,7 +146,7 @@ export function GroupForm() {
           <div className="space-y-1.5">
             <Label>Group Rules</Label>
             <RichTextEditor
-              value={watch("rules") || ""}
+              value={watchedRules || ""}
               onChange={(html) => setValue("rules", html)}
               placeholder="Rules every member should follow..."
             />

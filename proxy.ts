@@ -22,12 +22,18 @@ const adminRoles = ["super_admin", "admin"];
 const authProxy = auth((req) => {
   const { pathname } = req.nextUrl;
 
-  // Static / framework paths — always let through
+  // Static / framework paths — always let through.
+  // The previous `pathname.includes(".")` test was too permissive: any
+  // app route containing a literal dot (e.g. a slug with a version)
+  // would skip the auth gate. The downstream layouts re-check, but the
+  // proxy should be precise. We instead match a fixed list of static
+  // asset extensions at the end of the path.
+  const STATIC_ASSET_RE = /\.(svg|png|jpe?g|gif|webp|ico|js|css|woff2?|ttf|map|json|txt|xml)$/i;
   if (
     pathname.startsWith(authApiPath) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/upload") ||
-    pathname.includes(".")
+    STATIC_ASSET_RE.test(pathname)
   ) {
     return NextResponse.next();
   }

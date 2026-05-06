@@ -36,13 +36,13 @@ export async function getMyProfile() {
 
 // ===== Update own profile =====
 const profileUpdateSchema = z.object({
-  name: z.string().min(2).max(100),
-  phone: z.string().max(20).nullable().default(null),
-  social_links: z.record(z.string(), z.string()).optional().default({}),
+  name: z.string().min(2).max(100).optional(),
+  phone: z.string().max(20).nullable().optional(),
+  social_links: z.record(z.string(), z.string()).optional(),
 });
 
 export async function updateProfile(formData: {
-  name: string;
+  name?: string;
   phone?: string | null;
   social_links?: Record<string, string>;
   avatar_url?: string;
@@ -54,10 +54,12 @@ export async function updateProfile(formData: {
     const validated = profileUpdateSchema.parse(formData);
     const db = getServerClient();
 
-    await db
-      .from("users")
-      .update({ name: validated.name } as never)
-      .eq("id", session.user.id);
+    if (validated.name !== undefined) {
+      await db
+        .from("users")
+        .update({ name: validated.name } as never)
+        .eq("id", session.user.id);
+    }
 
     const profileUpdate: Record<string, unknown> = {};
     if (validated.phone !== undefined) profileUpdate.phone = validated.phone;
@@ -117,7 +119,9 @@ export async function changePassword(
       .eq("id", session.user.id);
 
     return { success: true, message: "Password changed successfully" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to change password" };
   }
 }
@@ -282,7 +286,9 @@ export async function updateUserRole(
     await recordAudit(db, session.user.id, "role_change", "user", userId, { old_role: oldRole, new_role: role });
 
     return { success: true, message: "Role updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update role" };
   }
 }
@@ -324,7 +330,9 @@ export async function updateUserStatus(
     await recordAudit(db, session.user.id, "status_change", "user", userId, { old_status: oldStatus, new_status: status });
 
     return { success: true, message: "Status updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update status" };
   }
 }
@@ -356,7 +364,9 @@ export async function deleteUser(userId: string): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "delete_user", "user", userId);
 
     return { success: true, message: "User deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete user" };
   }
 }
@@ -416,7 +426,9 @@ export async function assignPoints(
     await recordAudit(db, session.user.id, "assign_points", "user", userId, { amount, reason: reason || null });
 
     return { success: true, message: `${isAdd ? "+" : "-"}${absAmount.toFixed(2)} points ${isAdd ? "assigned to" : "deducted from"} user` };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to assign points" };
   }
 }
@@ -465,7 +477,9 @@ export async function approveUser(userId: string): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "approve_user", "user", userId);
 
     return { success: true, message: "User approved" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to approve user" };
   }
 }
@@ -509,7 +523,9 @@ export async function resendVerificationEmail(): Promise<ApiResponse> {
 
     await sendVerificationEmail(email, token, name);
     return { success: true, message: "Verification email sent — check your inbox" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to send verification email" };
   }
 }
@@ -526,7 +542,9 @@ export async function rejectUser(userId: string): Promise<ApiResponse> {
     await handleLeaderRemoval(userId, "leader rejected");
     await recordAudit(db, session.user.id, "reject_user", "user", userId);
     return { success: true, message: "User rejected" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to reject user" };
   }
 }

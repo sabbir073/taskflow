@@ -17,7 +17,9 @@ async function getIp(): Promise<string> {
   try {
     const h = await headers();
     return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return "unknown";
   }
 }
@@ -156,14 +158,15 @@ export async function registerUser(formData: {
           status: "pending",
         } as never);
 
-        // Hold subscription inactive until admin approves the payment
+        // Hold subscription inactive until admin approves the payment.
+        // The is_approved flag is set further down (line ~234) for any
+        // signup that needs admin review — paid signups always match
+        // that condition (`subRequired && formData.payment`), so we
+        // don't write it here too.
         await db.from("user_subscriptions").insert({
           user_id: userId, plan_id: formData.planId,
           starts_at: new Date().toISOString(), expires_at: null, status: "pending",
         } as never);
-
-        // Paid signups always need admin approval regardless of the toggle
-        await db.from("profiles").update({ is_approved: false } as never).eq("user_id", userId);
       } else {
         // Free plan — active immediately
         let expiresAt: string | null = null;
@@ -184,13 +187,18 @@ export async function registerUser(formData: {
         .limit(1);
       const topId = topPlan && (topPlan as Record<string, unknown>[])[0]?.id as number | undefined;
       if (topId) {
-        const period = String((topPlan as Record<string, unknown>[])[0]?.period || "forever");
-        let expiresAt: string | null = null;
-        if (period === "monthly") { const d = new Date(); d.setMonth(d.getMonth() + 1); expiresAt = d.toISOString(); }
-        else if (period === "yearly") { const d = new Date(); d.setFullYear(d.getFullYear() + 1); expiresAt = d.toISOString(); }
+        // Subs aren't required, but we still grant the user the highest-tier
+        // plan so they get the unlimited-feeling experience. Default the
+        // billing window to yearly so the row has a real expiry.
+        const period = String((topPlan as Record<string, unknown>[])[0]?.period || "yearly");
+        const d = new Date();
+        if (period === "monthly") d.setMonth(d.getMonth() + 1);
+        else if (period === "half_yearly") d.setMonth(d.getMonth() + 6);
+        else d.setFullYear(d.getFullYear() + 1);
         await db.from("user_subscriptions").insert({
           user_id: userId, plan_id: topId,
-          starts_at: new Date().toISOString(), expires_at: expiresAt, status: "active",
+          starts_at: new Date().toISOString(), expires_at: d.toISOString(),
+          period_type: period, status: "active",
         } as never);
       }
     }
@@ -246,7 +254,9 @@ export async function registerUser(formData: {
     // now or later (it's optional, not a blocker for login).
     try {
       await sendWelcomeEmail(validated.email, validated.name, token);
-    } catch {
+    } catch (err) {
+
+      console.error(err);
       // Don't fail registration if email fails
     }
 
@@ -280,15 +290,22 @@ export async function verifyEmail(token: string): Promise<ApiResponse> {
       return { success: false, error: "Verification link has expired" };
     }
 
+    // Only update the timestamp on rows that aren't already verified —
+    // re-clicking the verification link before the token-delete commits
+    // would otherwise overwrite the original verified timestamp with a
+    // later one, drifting the "Verified on ..." UI.
     await db
       .from("users")
       .update({ email_verified: new Date().toISOString() } as never)
-      .eq("email", record.identifier as string);
+      .eq("email", record.identifier as string)
+      .is("email_verified", null);
 
     await db.from("verification_tokens").delete().eq("token", token);
 
     return { success: true, message: "Email verified successfully!" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Verification failed" };
   }
 }
@@ -326,12 +343,16 @@ export async function forgotPassword(email: string): Promise<ApiResponse> {
 
     try {
       await sendPasswordResetEmail(email, token);
-    } catch {
+    } catch (err) {
+
+      console.error(err);
       // Silent fail
     }
 
     return { success: true, message: "If an account exists, a reset link has been sent." };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Something went wrong" };
   }
 }

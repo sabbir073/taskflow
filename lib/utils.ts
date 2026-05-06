@@ -25,7 +25,9 @@ export function formatDate(date: Date | string): string {
 export function formatRelativeTime(date: Date | string): string {
   const now = new Date();
   const target = new Date(date);
-  const diffMs = now.getTime() - target.getTime();
+  // Clamp to 0 so brief clock-skew (target slightly in the future) never
+  // renders "-5m ago"; we surface "just now" instead.
+  const diffMs = Math.max(0, now.getTime() - target.getTime());
   const diffSec = Math.floor(diffMs / 1000);
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
@@ -53,6 +55,26 @@ export function getInitials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+// Plan features arrive as either a JSONB array (already string[]) or a
+// stringified JSON array (legacy text column). Normalise both shapes
+// into a clean string[] so call sites don't need their own try/catch.
+export function parseFeatures(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((f): f is string => typeof f === "string" && f.trim().length > 0);
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.filter((f): f is string => typeof f === "string" && f.trim().length > 0)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 export function formatPoints(points: number): string {

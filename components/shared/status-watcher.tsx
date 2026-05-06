@@ -17,17 +17,18 @@ export function StatusWatcher({ mode }: { mode: "dashboard" | "suspended" }) {
   useEffect(() => {
     if (!data || !data.authed) return;
 
+    // router.replace() already triggers a server fetch in App Router —
+    // the previous `router.refresh()` afterwards caused a second roundtrip
+    // and re-ran dispatchSubscriptionNotifications on every status flip.
     if (mode === "dashboard") {
       if (data.status === "suspended") {
         router.replace("/suspended");
-        router.refresh();
       } else if (data.status === "banned") {
         router.replace("/login?error=AccountBlocked");
       }
     } else if (mode === "suspended") {
       if (data.status === "active") {
         router.replace("/dashboard");
-        router.refresh();
       } else if (data.status === "banned") {
         router.replace("/login?error=AccountBlocked");
       }

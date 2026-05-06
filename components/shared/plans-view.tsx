@@ -8,7 +8,7 @@ import { usePlans, useMySubscription, useSubscribe, useMyQuotaUsage } from "@/ho
 import { usePointPackages } from "@/hooks/use-payments";
 import { useAppSettings } from "@/components/providers/settings-provider";
 import { PaymentSubmissionModal } from "./payment-submission-modal";
-import { formatDate } from "@/lib/utils";
+import { formatDate, parseFeatures } from "@/lib/utils";
 
 type BillingPeriod = "monthly" | "half_yearly" | "yearly";
 type PayTarget =
@@ -95,12 +95,7 @@ export function PlansView() {
             const name = String(plan.name || "");
             const currency = String(plan.currency || "usd");
             const description = String(plan.description || "");
-            const rawFeatures = plan.features;
-            const features: string[] = Array.isArray(rawFeatures)
-              ? rawFeatures as string[]
-              : typeof rawFeatures === "string"
-              ? (() => { try { const p = JSON.parse(rawFeatures); return Array.isArray(p) ? p : []; } catch { return []; } })()
-              : [];
+            const features = parseFeatures(plan.features);
             const maxTasks = plan.max_tasks as number | null | undefined;
             const maxGroups = plan.max_groups as number | null | undefined;
             const credits = Number(plan.included_credits || 0);

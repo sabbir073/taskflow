@@ -84,15 +84,6 @@ export function SettingsProvider({
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update document title with site name
-  useEffect(() => {
-    // Update the favicon/tab title prefix
-    const titleEl = document.querySelector("title");
-    if (titleEl && !titleEl.textContent?.includes(settings.site_name)) {
-      // The Next.js metadata handles the title, so we just update the CSS variable
-    }
-  }, [settings.site_name]);
-
   return (
     <SettingsContext.Provider value={settings}>
       {children}

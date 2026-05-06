@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { ArrowRight, Play, Star, Users, ShieldCheck, Sparkles } from "lucide-react";
 
@@ -75,10 +77,10 @@ export default function Hero() {
             variants={item}
             className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
-            <a href="/register" className="btn-primary w-full sm:w-auto">
+            <Link href="/register" prefetch className="btn-primary w-full sm:w-auto">
               Create Free Account
               <ArrowRight className="h-4 w-4" />
-            </a>
+            </Link>
             <a href="#how" className="btn-secondary w-full sm:w-auto">
               <Play className="h-4 w-4" />
               See How It Works
@@ -91,12 +93,13 @@ export default function Hero() {
           >
             <div className="flex items-center gap-2">
               <div className="flex -space-x-2">
-                {["/landing/avatars/1.jpg", "/landing/avatars/2.jpg", "/landing/avatars/3.jpg", "/landing/avatars/4.jpg"].map((src, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={i}
+                {["/landing/avatars/1.jpg", "/landing/avatars/2.jpg", "/landing/avatars/3.jpg", "/landing/avatars/4.jpg"].map((src) => (
+                  <Image
+                    key={src}
                     src={src}
                     alt=""
+                    width={32}
+                    height={32}
                     className="inline-block h-8 w-8 rounded-full border-2 border-white object-cover"
                   />
                 ))}

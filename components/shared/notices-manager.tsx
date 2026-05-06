@@ -7,7 +7,8 @@ import { useAllNotices, useCreateNotice, useUpdateNotice, useDeleteNotice } from
 import { formatRelativeTime } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { RichTextEditor, RichTextContent } from "@/components/shared/rich-text-editor";
+import { RichTextEditor } from "@/components/shared/rich-text-editor";
+import { RichTextContent } from "@/components/shared/rich-text-content";
 
 export function NoticesManager() {
   const { data: notices, isLoading } = useAllNotices();
@@ -23,6 +24,7 @@ export function NoticesManager() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
+  const [editError, setEditError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
 
   async function handleCreate() {
@@ -36,10 +38,12 @@ export function NoticesManager() {
     setEditingId(n.id as number);
     setEditTitle(String(n.title || ""));
     setEditBody(String(n.body || ""));
+    setEditError("");
   }
 
   async function handleSaveEdit(id: number) {
-    if (!editTitle.trim()) return;
+    if (!editTitle.trim()) { setEditError("Title is required"); return; }
+    setEditError("");
     const r = await updateNotice.mutateAsync({ id, data: { title: editTitle.trim(), body: editBody.trim() } });
     if (r.success) setEditingId(null);
   }
@@ -106,7 +110,8 @@ export function NoticesManager() {
                     <div className="space-y-3">
                       <div className="space-y-1.5">
                         <Label>Title</Label>
-                        <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                        <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} error={!!editError} />
+                        {editError && <FieldError>{editError}</FieldError>}
                       </div>
                       <div className="space-y-1.5">
                         <Label>Message</Label>

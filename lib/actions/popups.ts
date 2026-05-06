@@ -95,7 +95,9 @@ export async function updatePopup(
     const { error } = await db.from("popups").update(update as never).eq("id", id);
     if (error) return { success: false, error: "Failed to update popup" };
     return { success: true, message: "Popup updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update popup" };
   }
 }
@@ -111,7 +113,9 @@ export async function deletePopup(id: number): Promise<ApiResponse> {
     const { error } = await db.from("popups").delete().eq("id", id);
     if (error) return { success: false, error: "Failed to delete popup" };
     return { success: true, message: "Popup deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete popup" };
   }
 }

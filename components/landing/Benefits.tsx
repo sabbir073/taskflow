@@ -127,15 +127,15 @@ export default function Benefits() {
               admin pushes a 7-digit metric in there. */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-1 lg:gap-4">
             <div className="min-w-0 rounded-2xl bg-white/15 p-3 backdrop-blur sm:p-4">
-              <div className="text-xl font-extrabold leading-none sm:text-2xl">10K+</div>
+              <div className="truncate text-xl font-extrabold leading-none sm:text-2xl">10K+</div>
               <div className="mt-1 text-[11px] leading-snug text-white/80 sm:text-xs">active users</div>
             </div>
             <div className="min-w-0 rounded-2xl bg-white/15 p-3 backdrop-blur sm:p-4">
-              <div className="text-xl font-extrabold leading-none sm:text-2xl">500K+</div>
+              <div className="truncate text-xl font-extrabold leading-none sm:text-2xl">500K+</div>
               <div className="mt-1 text-[11px] leading-snug text-white/80 sm:text-xs">tasks completed</div>
             </div>
             <div className="min-w-0 rounded-2xl bg-white/15 p-3 backdrop-blur sm:p-4">
-              <div className="text-xl font-extrabold leading-none sm:text-2xl">99.9%</div>
+              <div className="truncate text-xl font-extrabold leading-none sm:text-2xl">99.9%</div>
               <div className="mt-1 text-[11px] leading-snug text-white/80 sm:text-xs">uptime &middot; 24/7</div>
             </div>
           </div>

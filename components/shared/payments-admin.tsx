@@ -17,7 +17,7 @@ import { useAllPlans, useCreatePlan, useUpdatePlan, useDeletePlan } from "@/hook
 import { useAllInvoices, useUpdateInvoiceStatus } from "@/hooks/use-invoices";
 import { EmptyState } from "./empty-state";
 import { ConfirmDialog } from "./confirm-dialog";
-import { getInitials, formatRelativeTime, formatDate } from "@/lib/utils";
+import { getInitials, formatRelativeTime, formatDate, parseFeatures } from "@/lib/utils";
 import { FileText } from "lucide-react";
 
 type Tab = "plans" | "methods" | "packages" | "submissions" | "invoices";
@@ -84,7 +84,7 @@ function PlansTab() {
     name: "",
     price: 0,
     currency: "bdt" as "usd" | "bdt",
-    period: "monthly" as "monthly" | "yearly" | "forever",
+    period: "monthly" as "monthly" | "half_yearly" | "yearly",
     price_monthly: "" as string,
     price_half_yearly: "" as string,
     price_yearly: "" as string,
@@ -124,13 +124,13 @@ function PlansTab() {
 
   function startEdit(p: Record<string, unknown>) {
     setEditingId(p.id as number);
-    const featuresArr = Array.isArray(p.features) ? (p.features as string[]) : typeof p.features === "string" ? (() => { try { const x = JSON.parse(String(p.features)); return Array.isArray(x) ? x : []; } catch { return []; } })() : [];
+    const featuresArr = parseFeatures(p.features);
     const numOrEmpty = (v: unknown) => (v === null || v === undefined ? "" : String(v));
     setForm({
       name: String(p.name || ""),
       price: Number(p.price || 0),
       currency: (String(p.currency || "bdt") as "usd" | "bdt"),
-      period: (String(p.period || "monthly") as "monthly" | "yearly" | "forever"),
+      period: (String(p.period || "monthly") as "monthly" | "half_yearly" | "yearly"),
       price_monthly: numOrEmpty(p.price_monthly),
       price_half_yearly: numOrEmpty(p.price_half_yearly),
       price_yearly: numOrEmpty(p.price_yearly),
@@ -223,10 +223,10 @@ function PlansTab() {
               </div>
               <div className="space-y-1.5">
                 <Label>Default Period</Label>
-                <Select value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value as "monthly" | "yearly" | "forever" })}>
+                <Select value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value as "monthly" | "half_yearly" | "yearly" })}>
                   <option value="monthly">Monthly</option>
+                  <option value="half_yearly">6 Months</option>
                   <option value="yearly">Yearly</option>
-                  <option value="forever">Forever</option>
                 </Select>
               </div>
             </div>
@@ -351,12 +351,15 @@ function PlansTab() {
                   </div>
                   {features.length > 0 && (
                     <ul className="space-y-1 text-xs">
-                      {features.slice(0, 4).map((f, i) => (
-                        <li key={i} className="flex items-start gap-1.5">
-                          <CheckCircle className="w-3 h-3 text-success shrink-0 mt-0.5" />
-                          <span>{typeof f === "string" ? f : String(f)}</span>
-                        </li>
-                      ))}
+                      {features.slice(0, 4).map((f, i) => {
+                        const text = typeof f === "string" ? f : String(f);
+                        return (
+                          <li key={`${text}-${i}`} className="flex items-start gap-1.5">
+                            <CheckCircle className="w-3 h-3 text-success shrink-0 mt-0.5" />
+                            <span>{text}</span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                   <div className="flex items-center gap-1 pt-2 border-t border-border/40">

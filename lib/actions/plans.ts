@@ -174,7 +174,9 @@ export async function subscribe(planId: number): Promise<ApiResponse> {
     } as never);
 
     return { success: true, message: `Subscribed to ${p.name} plan` };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to subscribe" };
   }
 }
@@ -211,7 +213,7 @@ const planSchema = z.object({
   name: z.string().min(1).max(100),
   price: z.number().min(0),
   currency: z.enum(["usd", "bdt"]).default("bdt"),
-  period: z.enum(["monthly", "yearly", "forever"]).default("monthly"),
+  period: z.enum(["monthly", "half_yearly", "yearly"]).default("monthly"),
   description: z.string().optional().default(""),
   features: z.array(z.string()).default([]),
   max_tasks: z.number().int().nullable().optional(),
@@ -271,7 +273,9 @@ export async function updatePlan(planId: number, formData: Partial<z.infer<typeo
     await recordAudit(db, session.user.id, "update_plan", "plan", String(planId), { fields: Object.keys(update) });
 
     return { success: true, message: "Plan updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update plan" };
   }
 }
@@ -298,7 +302,9 @@ export async function deletePlan(planId: number): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "delete_plan", "plan", String(planId));
 
     return { success: true, message: "Plan deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete plan" };
   }
 }
@@ -379,7 +385,9 @@ export async function adminAssignSubscription(
     });
 
     return { success: true, message: `${p.name} plan assigned to user` };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to assign subscription" };
   }
 }

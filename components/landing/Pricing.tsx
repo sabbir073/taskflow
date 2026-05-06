@@ -16,6 +16,7 @@ import {
   LifeBuoy,
 } from "lucide-react";
 import { usePlans } from "@/hooks/use-plans";
+import { parseFeatures } from "@/lib/utils";
 
 // ============================================================================
 // Landing-page pricing section — 100% DB-driven.
@@ -63,22 +64,7 @@ const SUPPORT_LABEL: Record<string, string> = {
   priority: "Priority support",
 };
 
-// Features can arrive as an array (JSONB natively) or a stringified JSON
-// array — normalise to a string[] we can iterate cleanly.
-function parseFeatures(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.filter((f): f is string => typeof f === "string" && f.trim().length > 0);
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed)
-        ? parsed.filter((f): f is string => typeof f === "string" && f.trim().length > 0)
-        : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
+// parseFeatures lives in lib/utils.ts — imported above
 
 // Convert the DB's tier totals (price_half_yearly / price_yearly are stored
 // as the TOTAL amount for the window) into a monthly-equivalent figure for
@@ -87,9 +73,6 @@ function getDisplayPrice(
   plan: Record<string, unknown>,
   cycle: Cycle
 ): { amount: number; perMonthLabel: string; billedNote: string | null } {
-  if (plan.period === "forever") {
-    return { amount: Number(plan.price || 0), perMonthLabel: "one-time", billedNote: null };
-  }
   if (cycle === "monthly") {
     return { amount: Number(plan.price_monthly || 0), perMonthLabel: "/ monthly", billedNote: null };
   }

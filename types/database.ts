@@ -298,7 +298,7 @@ export interface UserSubscription {
   id: number;
   user_id: string;
   plan_id: number;
-  period_type: "monthly" | "half_yearly" | "yearly" | "forever" | null;
+  period_type: "monthly" | "half_yearly" | "yearly" | null;
   starts_at: string;
   expires_at: string | null;
   status: string;

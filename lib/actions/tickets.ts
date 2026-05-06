@@ -262,7 +262,9 @@ export async function replyToTicket(
     }
 
     return { success: true, message: "Reply sent" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to send reply" };
   }
 }
@@ -331,7 +333,9 @@ export async function updateTicketStatus(ticketId: number, status: string): Prom
     } as never);
 
     return { success: true, message: `Ticket marked as ${label.toLowerCase()}` };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update ticket" };
   }
 }

@@ -122,7 +122,7 @@ export function AppealsManager() {
                       <div className="flex gap-2 flex-wrap">
                         {evidence.map((url, i) => (
                           <a
-                            key={i}
+                            key={`${url}-${i}`}
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"

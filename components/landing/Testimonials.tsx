@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { Star, Quote } from "lucide-react";
 
@@ -100,10 +101,12 @@ export default function Testimonials() {
                 &ldquo;{r.quote}&rdquo;
               </blockquote>
               <figcaption className="mt-5 flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={r.avatar}
                   alt={r.name}
+                  width={40}
+                  height={40}
+                  loading="lazy"
                   className="inline-block h-10 w-10 rounded-full object-cover"
                 />
                 <div>

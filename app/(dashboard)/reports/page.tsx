@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { requireRole } from "@/lib/auth-helpers";
 import { PageHeader } from "@/components/shared/page-header";
-import { ReportsView } from "@/components/shared/reports-view";
+import ReportsView from "./reports-view-loader";
 
 export const metadata: Metadata = { title: "Reports & Analytics" };
 

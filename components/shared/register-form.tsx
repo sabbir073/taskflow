@@ -11,6 +11,7 @@ import { getPlans } from "@/lib/actions/plans";
 import { getActivePaymentMethods, isSubscriptionRequired, getUsdToBdtRate } from "@/lib/actions/payments";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { parseFeatures } from "@/lib/utils";
 
 const registerSchema = z
   .object({
@@ -52,14 +53,19 @@ export function RegisterForm() {
   const [payError, setPayError] = useState("");
 
   useEffect(() => {
+    // Guard every async setState against unmount — otherwise navigating
+    // away mid-fetch produces "set state on unmounted" warnings and can
+    // overwrite state on a remounted instance.
+    let cancelled = false;
     isSubscriptionRequired().then((required) => {
+      if (cancelled) return;
       setSubRequired(required);
-      // Skip the plan step entirely when subscription isn't required
       if (!required) setStep("details");
     });
-    getPlans().then((p) => { setPlans(p); setLoadingPlans(false); });
-    getActivePaymentMethods().then(setPaymentMethods);
-    getUsdToBdtRate().then(setUsdToBdtRate);
+    getPlans().then((p) => { if (cancelled) return; setPlans(p); setLoadingPlans(false); });
+    getActivePaymentMethods().then((m) => { if (cancelled) return; setPaymentMethods(m); });
+    getUsdToBdtRate().then((r) => { if (cancelled) return; setUsdToBdtRate(r); });
+    return () => { cancelled = true; };
   }, []);
 
   const selectedPlan = useMemo(
@@ -171,7 +177,7 @@ export function RegisterForm() {
                 const period = String(plan.period || "");
                 const description = String(plan.description || "");
                 const rawF = plan.features;
-                const features: string[] = Array.isArray(rawF) ? rawF as string[] : typeof rawF === "string" ? (() => { try { const p = JSON.parse(rawF); return Array.isArray(p) ? p : []; } catch { return []; } })() : [];
+                const features = parseFeatures(rawF);
                 const isSelected = selectedPlanId === id;
 
                 return (
@@ -197,11 +203,14 @@ export function RegisterForm() {
                     </div>
                     {description && <p className="text-xs text-muted-foreground mb-2">{description}</p>}
                     <div className="flex flex-wrap gap-2">
-                      {features.slice(0, 3).map((f, i) => (
-                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                          {typeof f === "string" ? f : String(f)}
-                        </span>
-                      ))}
+                      {features.slice(0, 3).map((f, i) => {
+                        const text = typeof f === "string" ? f : String(f);
+                        return (
+                          <span key={`${text}-${i}`} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            {text}
+                          </span>
+                        );
+                      })}
                     </div>
                   </button>
                 );

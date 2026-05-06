@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Select, Textarea, Btn, FieldError } from "@/components/ui";
 import { Upload, X, ImagePlus, Users } from "lucide-react";
 import { useUpdateGroup } from "@/hooks/use-groups";
@@ -34,7 +34,7 @@ export function GroupEditForm({ group, onDone }: Props) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormShape>({
+  const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<FormShape>({
     defaultValues: {
       name: String(group.name || ""),
       description: String(group.description || ""),
@@ -44,6 +44,9 @@ export function GroupEditForm({ group, onDone }: Props) {
       max_members: Number(group.max_members || 50),
     },
   });
+  // useWatch lets the React Compiler memoize child components that
+  // consume this value (RichTextEditor below).
+  const watchedRules = useWatch({ control, name: "rules" });
 
   async function uploadOne(file: File): Promise<string | null> {
     const fd = new FormData();
@@ -171,7 +174,7 @@ export function GroupEditForm({ group, onDone }: Props) {
           <div className="space-y-1.5">
             <Label>Group Rules</Label>
             <RichTextEditor
-              value={watch("rules") || ""}
+              value={watchedRules || ""}
               onChange={(html) => setValue("rules", html)}
               placeholder="Rules every member should follow..."
             />

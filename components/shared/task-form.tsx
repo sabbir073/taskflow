@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, FieldError, Select, Textarea, Btn } from "@/components/ui";
 import { usePlatforms, useTaskTypes, useCreateTask } from "@/hooks/use-tasks";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
@@ -46,16 +46,19 @@ export function TaskForm() {
     e.target.value = "";
   }
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<TaskFormData>({
+  const { register, handleSubmit, watch, control, setValue, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: { point_budget: 100, points_per_completion: 10, proof_type: "both", priority: "medium", status: "draft", target_type: "all_users", is_recurring: false, task_data: {}, images: [], urls: [] },
   });
 
-  const watchPlatform = watch("platform_id");
-  const watchTaskType = watch("task_type_id");
-  const watchTargetType = watch("target_type");
-  const watchRecurring = watch("is_recurring");
-  const watchBudget = watch("point_budget");
-  const watchPerCompletion = watch("points_per_completion");
+  // useWatch instead of `watch()` so React Compiler can memoize children
+  // that consume these values (RichTextEditor + the submit button stay
+  // stable across keystrokes that don't move them).
+  const watchPlatform = useWatch({ control, name: "platform_id" });
+  const watchTaskType = useWatch({ control, name: "task_type_id" });
+  const watchTargetType = useWatch({ control, name: "target_type" });
+  const watchRecurring = useWatch({ control, name: "is_recurring" });
+  const watchBudget = useWatch({ control, name: "point_budget" });
+  const watchPerCompletion = useWatch({ control, name: "points_per_completion" });
 
   const isIndividual = watchTargetType === "individual";
 

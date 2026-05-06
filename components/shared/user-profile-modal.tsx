@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Badge, Btn } from "@/components/ui";
+import { useEffect, useId, useState } from "react";
+import { Badge, Btn, Modal } from "@/components/ui";
 import { Trophy, Target, Flame, Calendar, X, Mail, Sparkles, Clock, AlertTriangle, CheckCircle, ShieldCheck, ShieldAlert } from "lucide-react";
 import { getUserById } from "@/lib/actions/users";
 import { ROLE_LABELS } from "@/lib/constants/roles";
@@ -18,7 +18,6 @@ const PERIOD_LABEL: Record<string, string> = {
   monthly: "Monthly",
   half_yearly: "6 Months",
   yearly: "Yearly",
-  forever: "Forever",
 };
 
 interface Props {
@@ -31,6 +30,7 @@ interface Props {
 export function UserProfileModal({ userId, onClose }: Props) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
+  const titleId = useId();
 
   useEffect(() => {
     if (!userId) {
@@ -42,7 +42,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
       return;
     }
     let cancelled = false;
-     
+
     setLoading(true);
     getUserById(userId).then((d) => {
       if (cancelled) return;
@@ -52,18 +52,15 @@ export function UserProfileModal({ userId, onClose }: Props) {
     return () => { cancelled = true; };
   }, [userId]);
 
-  if (!userId) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+    <Modal
+      isOpen={!!userId}
+      onClose={onClose}
+      labelledBy={titleId}
+      backdropClassName="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
+      panelClassName="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border overflow-hidden"
     >
-      <div
-        className="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {loading || !data ? (
+      {loading || !data ? (
           <div className="p-12 text-center">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
@@ -102,7 +99,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
 
               <div className="pt-12 px-6 pb-6">
                 <div className="mb-4">
-                  <h3 className="text-lg font-bold">{vName}</h3>
+                  <h3 id={titleId} className="text-lg font-bold">{vName}</h3>
                   <p className="text-sm text-muted-foreground flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5" /> {vEmail}
                   </p>
@@ -198,7 +195,6 @@ export function UserProfileModal({ userId, onClose }: Props) {
             </>
           );
         })()}
-      </div>
-    </div>
+    </Modal>
   );
 }

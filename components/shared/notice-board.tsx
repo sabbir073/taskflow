@@ -1,22 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Btn } from "@/components/ui";
+import { Btn, Modal } from "@/components/ui";
 import { Volume2, X, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { useActiveNotices } from "@/hooks/use-notices";
 import { useAppSettings } from "@/components/providers/settings-provider";
 import { getSettingsMap } from "@/lib/actions/settings";
 import { formatRelativeTime } from "@/lib/utils";
-import { RichTextContent } from "./rich-text-editor";
+import { RichTextContent } from "./rich-text-content";
 
 function useNoticeBoardEnabled(fallback: boolean): boolean {
   const { data } = useQuery({
     queryKey: ["settings-live"],
     queryFn: getSettingsMap,
-    refetchInterval: 10000,
+    refetchInterval: 60000,
     refetchOnWindowFocus: true,
-    staleTime: 5000,
+    staleTime: 30000,
   });
   if (!data) return fallback;
   const val = data.enable_notice_board;
@@ -38,14 +38,34 @@ export function NoticeBoard() {
   const [animating, setAnimating] = useState(false);
 
   const items = notices || [];
+  const noticeTitleId = useId();
 
-  // Auto-rotate
+  // Track latest activeIdx in a ref so the auto-rotate interval can read it
+  // without forcing a rebind on every tick (which previously caused
+  // strict-mode double-tick & cadence drift after manual nav).
+  const activeIdxRef = useRef(activeIdx);
+  useEffect(() => { activeIdxRef.current = activeIdx; }, [activeIdx]);
+
+  // Track pending animation timers so unmount/dep-change can cancel them
+  // and `animating` can never get stuck true.
+  const animTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    const pending = animTimeoutsRef.current;
+    return () => {
+      pending.forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
+  // Auto-rotate. Deps no longer include activeIdx — interval reads ref.
   useEffect(() => {
     if (items.length <= 1 || paused) return;
-    const timer = setInterval(() => slideTo((activeIdx + 1) % items.length, "up"), 5000);
+    const timer = setInterval(() => {
+      const next = (activeIdxRef.current + 1) % items.length;
+      slideTo(next, "up");
+    }, 5000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length, paused, activeIdx]);
+  }, [items.length, paused]);
 
   if (!enabled) return null;
   if (isLoading || items.length === 0) return null;
@@ -54,7 +74,12 @@ export function NoticeBoard() {
     if (animating || idx === activeIdx) return;
     setSlideDir(dir);
     setAnimating(true);
-    setTimeout(() => { setActiveIdx(idx); setTimeout(() => setAnimating(false), 50); }, 250);
+    const t1 = setTimeout(() => {
+      setActiveIdx(idx);
+      const t2 = setTimeout(() => setAnimating(false), 50);
+      animTimeoutsRef.current.push(t2);
+    }, 250);
+    animTimeoutsRef.current.push(t1);
   }
 
   const current = items[activeIdx] || items[0];
@@ -141,15 +166,15 @@ export function NoticeBoard() {
       </div>
 
       {/* ---- Full notice modal ---- */}
-      {openNotice && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-          onClick={() => setOpenNotice(null)}
-        >
-          <div
-            className="bg-card rounded-2xl w-full max-w-2xl shadow-2xl border border-border/50 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
+      <Modal
+        isOpen={!!openNotice}
+        onClose={() => setOpenNotice(null)}
+        labelledBy={noticeTitleId}
+        backdropClassName="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        panelClassName="bg-card rounded-2xl w-full max-w-2xl shadow-2xl border border-border/50 overflow-hidden"
+      >
+        {openNotice && (
+          <>
             {/* Header */}
             <div className="bg-[#1a1a2e] dark:bg-[#0f0f1a] text-white p-6 relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-primary/30 via-transparent to-accent/20" />
@@ -161,7 +186,7 @@ export function NoticeBoard() {
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">Announcement</span>
                   </div>
-                  <h2 className="text-xl font-bold leading-tight">{String(openNotice.title || "")}</h2>
+                  <h2 id={noticeTitleId} className="text-xl font-bold leading-tight">{String(openNotice.title || "")}</h2>
                   {!!openNotice.created_at && (
                     <p className="text-xs text-white/50 mt-2 flex items-center gap-1.5">
                       <Clock className="w-3 h-3" /> {formatRelativeTime(String(openNotice.created_at))}
@@ -177,7 +202,7 @@ export function NoticeBoard() {
 
             {/* Body */}
             <div className="p-6 max-h-[60vh] overflow-y-auto">
-              {String(openNotice.body || "").startsWith("<") ? (
+              {/^\s*<[a-zA-Z]/.test(String(openNotice.body || "")) ? (
                 <RichTextContent html={String(openNotice.body || "")} />
               ) : (
                 <p className="text-sm whitespace-pre-wrap leading-relaxed text-muted-foreground">{String(openNotice.body || "")}</p>
@@ -210,9 +235,9 @@ export function NoticeBoard() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </>
   );
 }

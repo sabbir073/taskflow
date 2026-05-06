@@ -1,7 +1,20 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
+import { headers } from "next/headers";
 import { getServerClient } from "@/lib/db/supabase";
+import { checkRate } from "@/lib/rate-limit";
+
+// Best-effort caller IP — only used as a rate-limit key, never as
+// authentication. Mirrors lib/actions/auth.ts:getIp().
+async function getIp(): Promise<string> {
+  try {
+    const h = await headers();
+    return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -13,6 +26,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
+
+        // Rate-limit credential-stuffing: 5/email/15min and 20/IP/15min.
+        // We return null (NextAuth surfaces a generic auth error) rather than
+        // signalling rate-limit explicitly — don't reveal the throttle state
+        // to attackers.
+        const emailKey = String(credentials.email).toLowerCase();
+        const ip = await getIp();
+        const emailRate = checkRate("login", emailKey, 5, 15 * 60 * 1000);
+        if (!emailRate.allowed) return null;
+        const ipRate = checkRate("login_ip", ip, 20, 15 * 60 * 1000);
+        if (!ipRate.allowed) return null;
 
         const supabase = getServerClient();
 

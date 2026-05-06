@@ -43,30 +43,47 @@ export async function getUnreadCount(): Promise<number> {
   return count || 0;
 }
 
-export async function markAsRead(notificationId: number): Promise<ApiResponse> {
+// Block suspended/banned users from mutating their notifications, matching
+// the rest of the app — `auth()` alone isn't enough.
+async function requireActiveUser(): Promise<{ userId: string } | { error: string }> {
   const session = await auth();
-  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (!session?.user?.id) return { error: "Unauthorized" };
 
   const db = getServerClient();
-  await db.from("notifications").update({ is_read: true } as never).eq("id", notificationId).eq("user_id", session.user.id);
+  const { data: profile } = await db
+    .from("profiles")
+    .select("status")
+    .eq("user_id", session.user.id)
+    .single();
+  const status = profile ? String((profile as Record<string, unknown>).status || "active") : "active";
+  if (status !== "active") return { error: "Your account is not active" };
+  return { userId: session.user.id };
+}
+
+export async function markAsRead(notificationId: number): Promise<ApiResponse> {
+  const gate = await requireActiveUser();
+  if ("error" in gate) return { success: false, error: gate.error };
+
+  const db = getServerClient();
+  await db.from("notifications").update({ is_read: true } as never).eq("id", notificationId).eq("user_id", gate.userId);
   return { success: true };
 }
 
 export async function markAllAsRead(): Promise<ApiResponse> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  const gate = await requireActiveUser();
+  if ("error" in gate) return { success: false, error: gate.error };
 
   const db = getServerClient();
-  await db.from("notifications").update({ is_read: true } as never).eq("user_id", session.user.id).eq("is_read", false);
+  await db.from("notifications").update({ is_read: true } as never).eq("user_id", gate.userId).eq("is_read", false);
   return { success: true, message: "All marked as read" };
 }
 
 export async function deleteNotification(notificationId: number): Promise<ApiResponse> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  const gate = await requireActiveUser();
+  if ("error" in gate) return { success: false, error: gate.error };
 
   const db = getServerClient();
-  await db.from("notifications").delete().eq("id", notificationId).eq("user_id", session.user.id);
+  await db.from("notifications").delete().eq("id", notificationId).eq("user_id", gate.userId);
   return { success: true };
 }
 

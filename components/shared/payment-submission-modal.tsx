@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useId } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, Input, Textarea, Label, Btn, Badge, FieldError } from "@/components/ui";
+import { Card, CardContent, Input, Textarea, Label, Btn, Badge, FieldError, Modal } from "@/components/ui";
 import { X, CheckCircle, ExternalLink, Wallet } from "lucide-react";
 import { usePaymentMethods, useSubmitPayment } from "@/hooks/use-payments";
 import { getUsdToBdtRate } from "@/lib/actions/payments";
@@ -35,6 +35,7 @@ export function PaymentSubmissionModal({ open, onClose, onSuccess, purpose, plan
   const [txId, setTxId] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
+  const titleId = useId();
 
   const method = useMemo(
     () => (methods || []).find((m) => (m.id as number) === selectedId),
@@ -93,18 +94,17 @@ export function PaymentSubmissionModal({ open, onClose, onSuccess, purpose, plan
   const hasMethods = methodList.length > 0;
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 overflow-y-auto"
-      onClick={handleClose}
+    <Modal
+      isOpen={open}
+      onClose={handleClose}
+      labelledBy={titleId}
+      backdropClassName="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 overflow-y-auto"
+      panelClassName="bg-card rounded-2xl w-full max-w-xl shadow-2xl border border-border my-auto"
     >
-      <div
-        className="bg-card rounded-2xl w-full max-w-xl shadow-2xl border border-border my-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
         {/* Header */}
         <div className="p-5 border-b border-border/60 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-lg font-bold">Complete Payment</h3>
+            <h3 id={titleId} className="text-lg font-bold">Complete Payment</h3>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{summary.title}{summary.subtitle ? ` — ${summary.subtitle}` : ""}</p>
           </div>
           <button type="button" onClick={handleClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
@@ -223,7 +223,6 @@ export function PaymentSubmissionModal({ open, onClose, onSuccess, purpose, plan
             Submit Payment
           </Btn>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

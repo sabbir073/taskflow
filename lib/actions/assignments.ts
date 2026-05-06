@@ -132,7 +132,9 @@ export async function acceptTask(assignmentId: number): Promise<ApiResponse> {
     } as never);
 
     return { success: true, message: "Task accepted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to accept task" };
   }
 }
@@ -162,15 +164,7 @@ export async function submitProof(
     if (record.status === "cancelled") return { success: false, error: "This task is no longer available" };
     if (!["in_progress", "rejected"].includes(record.status as string)) return { success: false, error: "Task is not in a submittable state" };
 
-    // Enforce max-completions cap: only the first N submissions win
     const taskId = record.task_id as number;
-    const [filledBefore, maxCompletions] = await Promise.all([
-      countFilledSlots(db, taskId),
-      getTaskMaxCompletions(db, taskId),
-    ]);
-    if (maxCompletions > 0 && filledBefore >= maxCompletions) {
-      return { success: false, error: "This task has reached its submission limit" };
-    }
 
     // Validate proof type - use task's own proof_type field
     const { data: task } = await db.from("tasks").select("title, proof_type").eq("id", taskId).single();
@@ -183,17 +177,27 @@ export async function submitProof(
         return { success: false, error: "At least one screenshot proof is required" };
     }
 
-    await db.from("task_assignments").update({
-      status: "submitted",
-      proof_urls: data.proof_urls || [],
-      proof_screenshots: data.proof_screenshots || [],
-      proof_notes: data.proof_notes || null,
-      submitted_at: new Date().toISOString(),
-    } as never).eq("id", assignmentId);
-
-    // If this submission filled the last slot, cancel any remaining open assignments
-    if (maxCompletions > 0 && filledBefore + 1 >= maxCompletions) {
-      await cancelRemainingAssignments(db, taskId);
+    // Atomic capacity-check + status update + sibling cancellation. The
+    // RPC takes a row lock on the parent task so concurrent submitters
+    // can't race past the max-completions cap. See migration
+    // 041_submit_proof_atomic.
+    const { data: rpcResult, error: rpcErr } = await db.rpc("submit_proof_if_capacity", {
+      p_assignment_id: assignmentId,
+      p_proof_urls: data.proof_urls || [],
+      p_proof_screenshots: data.proof_screenshots || [],
+      p_proof_notes: data.proof_notes || null,
+    } as never);
+    if (rpcErr) {
+      console.error("[submitProof] rpc failed", rpcErr);
+      return { success: false, error: "Failed to submit proof" };
+    }
+    const result = (rpcResult || {}) as Record<string, unknown>;
+    if (!result.success) {
+      const code = String(result.code || "");
+      if (code === "cap_reached") return { success: false, error: "This task has reached its submission limit" };
+      if (code === "wrong_status") return { success: false, error: "Task is not in a submittable state" };
+      if (code === "not_found") return { success: false, error: "Assignment not found" };
+      return { success: false, error: "Failed to submit proof" };
     }
 
     // Notify all admins in real-time that a proof needs review
@@ -214,7 +218,9 @@ export async function submitProof(
     }
 
     return { success: true, message: "Proof submitted for review" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to submit proof" };
   }
 }
@@ -308,43 +314,22 @@ export async function reviewAssignment(
         rejection_reason: reason,
       } as never).eq("id", assignmentId);
 
-      // Penalty fires exactly ONCE, on the 3rd rejection. Previously this
-      // used `>= 3` which re-charged the user for every subsequent rejection
-      // — a user with 5 rejections paid the penalty three times.
-      const { count } = await db.from("task_assignments").select("id", { count: "exact", head: true })
-        .eq("task_id", record.task_id).eq("user_id", record.user_id).eq("status", "rejected");
-
-      if ((count || 0) === 3) {
-        // Try the full -5 penalty atomically. If balance is too low the RPC
-        // rejects (insufficient_balance); in that case, deduct whatever is
-        // available so the user doesn't end up negative.
-        const { error: rpcErr } = await db.rpc("adjust_user_points", {
-          p_user_id: record.user_id,
-          p_delta: -5,
-          p_action: "task_rejected",
-          p_description: "Penalty: 3+ rejections on same task",
-          p_reference_type: "task_assignment",
-          p_reference_id: String(assignmentId),
-        } as never);
-        if (rpcErr) {
-          const { data: profile } = await db.from("profiles").select("total_points").eq("user_id", record.user_id).single();
-          const current = profile ? Number((profile as Record<string, unknown>).total_points || 0) : 0;
-          if (current > 0) {
-            await db.rpc("adjust_user_points", {
-              p_user_id: record.user_id,
-              p_delta: -current,
-              p_action: "task_rejected",
-              p_description: "Penalty: 3+ rejections (partial — balance too low)",
-              p_reference_type: "task_assignment",
-              p_reference_id: String(assignmentId),
-            } as never);
-          }
-        }
-      }
+      // Atomic, race-safe penalty. The Postgres function takes a row lock
+      // on the user's profile, counts rejected assignments for this
+      // (task, user), and applies the penalty exactly once on the third
+      // rejection — guarded by an idempotency check on points_history so
+      // concurrent rejections (e.g. two admins clicking at the same time)
+      // can't double-charge. See migration 038_rejection_penalty_atomic.
+      await db.rpc("apply_rejection_penalty_if_threshold", {
+        p_task_id: record.task_id,
+        p_user_id: record.user_id,
+      } as never);
     }
 
     return { success: true, message: "Assignment rejected" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to review assignment" };
   }
 }
@@ -372,12 +357,17 @@ export async function getMyAssignmentForTask(taskId: number): Promise<Record<str
   if (!session?.user?.id) return null;
 
   const db = getServerClient();
+  // Some flows (re-assignment after cancellation) leave more than one row
+  // per (task_id, user_id). `.single()` would throw PGRST116 there and the
+  // UI would show "Accept" again. Sort by newest and pick that.
   const { data } = await db
     .from("task_assignments")
     .select("*")
     .eq("task_id", taskId)
     .eq("user_id", session.user.id)
-    .single();
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   return (data as Record<string, unknown>) || null;
 }

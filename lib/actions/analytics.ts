@@ -24,16 +24,18 @@ export async function getUserDashboardStats() {
   if (!session?.user?.id) return { myTasks: 0, pendingTasks: 0, totalPoints: 0, currentRank: 0 };
   const db = getServerClient();
   const userId = session.user.id;
+  // Rank now resolves on the database via RANK() OVER (...) so we don't
+  // pull every active user's user_id over the wire to compute a single
+  // index. See migration 039_user_rank_rpc.
   const [myTasks, pendingTasks, profile, rankResult] = await Promise.all([
     db.from("task_assignments").select("id", { count: "exact", head: true }).eq("user_id", userId),
     db.from("task_assignments").select("id", { count: "exact", head: true }).eq("user_id", userId).in("status", ["pending", "in_progress"]),
     db.from("profiles").select("total_points").eq("user_id", userId).single(),
-    db.from("profiles").select("user_id").eq("status", "active").order("total_points", { ascending: false }),
+    db.rpc("get_user_rank", { p_user_id: userId } as never),
   ]);
   const totalPoints = profile.data ? Number((profile.data as Record<string, unknown>).total_points) : 0;
-  const rankData = (rankResult.data || []) as Record<string, unknown>[];
-  const currentRank = rankData.findIndex((r) => r.user_id === userId) + 1;
-  return { myTasks: myTasks.count || 0, pendingTasks: pendingTasks.count || 0, totalPoints, currentRank: currentRank || rankData.length + 1 };
+  const currentRank = Number(rankResult.data || 0);
+  return { myTasks: myTasks.count || 0, pendingTasks: pendingTasks.count || 0, totalPoints, currentRank };
 }
 
 // `userId` scopes the feed to that user's own assignments — used for the
@@ -82,14 +84,15 @@ export async function getOverviewReport(filters: ReportFilters) {
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
-  const [totalTasks, totalUsers, totalGroups, totalPoints, completedTasks, pendingTasks, rejectedTasks, totalBudget] = await Promise.all([
+  // Collapse the three status-scoped task_assignments counts (approved /
+  // pending+in_progress / rejected) into a single fetch + JS bucket so we
+  // do six round-trips instead of eight.
+  const [totalTasks, totalUsers, totalGroups, totalPoints, assignmentRows, totalBudget] = await Promise.all([
     db.from("tasks").select("id", { count: "exact", head: true }).gte("created_at", from).lte("created_at", to),
     db.from("users").select("id", { count: "exact", head: true }).gte("created_at", from).lte("created_at", to),
     db.from("groups").select("id", { count: "exact", head: true }).gte("created_at", from).lte("created_at", to),
     db.from("points_history").select("amount").gte("created_at", from).lte("created_at", to),
-    db.from("task_assignments").select("id", { count: "exact", head: true }).eq("status", "approved").gte("created_at", from).lte("created_at", to),
-    db.from("task_assignments").select("id", { count: "exact", head: true }).in("status", ["pending", "in_progress"]).gte("created_at", from).lte("created_at", to),
-    db.from("task_assignments").select("id", { count: "exact", head: true }).eq("status", "rejected").gte("created_at", from).lte("created_at", to),
+    db.from("task_assignments").select("status").gte("created_at", from).lte("created_at", to),
     db.from("tasks").select("point_budget").gte("created_at", from).lte("created_at", to),
   ]);
 
@@ -98,15 +101,25 @@ export async function getOverviewReport(filters: ReportFilters) {
   const budgetData = (totalBudget.data || []) as Record<string, unknown>[];
   const totalBudgetAmount = budgetData.reduce((s, t) => s + Number(t.point_budget || 0), 0);
 
+  let completedTasks = 0;
+  let pendingTasks = 0;
+  let rejectedTasks = 0;
+  for (const row of ((assignmentRows.data || []) as Record<string, unknown>[])) {
+    const s = String(row.status || "");
+    if (s === "approved") completedTasks++;
+    else if (s === "pending" || s === "in_progress") pendingTasks++;
+    else if (s === "rejected") rejectedTasks++;
+  }
+
   return {
     totalTasks: totalTasks.count || 0,
     newUsers: totalUsers.count || 0,
     newGroups: totalGroups.count || 0,
     totalPointsMoved,
     totalBudgetAmount,
-    completedTasks: completedTasks.count || 0,
-    pendingTasks: pendingTasks.count || 0,
-    rejectedTasks: rejectedTasks.count || 0,
+    completedTasks,
+    pendingTasks,
+    rejectedTasks,
   };
 }
 
@@ -130,19 +143,26 @@ export async function getTasksByPlatform(filters: ReportFilters) {
   return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 }
 
-// Assignment status distribution
+// Assignment status distribution.
+// One round-trip — fetch the status column for the date window and bucket
+// in JS. Previously fired five sequential count(*) queries.
 export async function getAssignmentStatusDistribution(filters: ReportFilters) {
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
   const statuses = ["pending", "in_progress", "submitted", "approved", "rejected"];
-  const results = await Promise.all(
-    statuses.map(async (status) => {
-      const { count } = await db.from("task_assignments").select("id", { count: "exact", head: true }).eq("status", status).gte("created_at", from).lte("created_at", to);
-      return { status, count: count || 0 };
-    })
-  );
-  return results;
+  const { data } = await db
+    .from("task_assignments")
+    .select("status")
+    .gte("created_at", from)
+    .lte("created_at", to);
+
+  const counts = new Map<string, number>(statuses.map((s) => [s, 0]));
+  for (const row of ((data || []) as Record<string, unknown>[])) {
+    const s = String(row.status || "");
+    counts.set(s, (counts.get(s) || 0) + 1);
+  }
+  return statuses.map((status) => ({ status, count: counts.get(status) || 0 }));
 }
 
 // Points transaction over time

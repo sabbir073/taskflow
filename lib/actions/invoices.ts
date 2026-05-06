@@ -164,7 +164,9 @@ export async function updateInvoiceStatus(
     }
 
     return { success: true, message: `Invoice marked as ${newStatus}` };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update invoice" };
   }
 }

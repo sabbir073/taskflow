@@ -221,7 +221,9 @@ export async function reviewAppeal(
 
       return { success: true, message: "Appeal rejected" };
     }
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to review appeal" };
   }
 }

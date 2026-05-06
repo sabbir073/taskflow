@@ -300,7 +300,9 @@ export async function approveTask(taskId: number): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "approve_task", "task", String(taskId), { title: String(t.title || "") });
 
     return { success: true, message: "Task approved" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to approve task" };
   }
 }
@@ -343,10 +345,17 @@ export async function rejectTask(taskId: number, reason?: string): Promise<ApiRe
     await recordAudit(db, session.user.id, "reject_task", "task", String(taskId), { title: String(t.title || ""), reason: reason || null });
 
     return { success: true, message: "Task rejected and points refunded" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to reject task" };
   }
 }
+
+// Validate the editable subset of task fields. Server controls created_by,
+// approval_status, points, points_spent — none of these may come from the
+// client.
+const taskUpdateSchema = taskSchema.partial();
 
 export async function updateTask(
   taskId: number,
@@ -360,7 +369,7 @@ export async function updateTask(
     const isAdmin = ["super_admin", "admin"].includes(session.user.role);
 
     // Verify ownership or admin
-    const { data: existing } = await db.from("tasks").select("created_by, approval_status, title").eq("id", taskId).single();
+    const { data: existing } = await db.from("tasks").select("created_by, approval_status, title, points_spent").eq("id", taskId).single();
     if (!existing) return { success: false, error: "Task not found" };
     const task = existing as Record<string, unknown>;
 
@@ -368,15 +377,42 @@ export async function updateTask(
       return { success: false, error: "You can only edit your own tasks" };
     }
 
+    // Validate against the editable subset. Reject anything that isn't a
+    // recognised task field — `approval_status`, `created_by`, `points`,
+    // `points_spent` etc. are server-controlled and must never come from
+    // user input.
+    const parsed = taskUpdateSchema.safeParse(formData);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || "Invalid task fields" };
+    }
+    const updateData: Record<string, unknown> = { ...parsed.data };
+
+    // Mirror createTask: keep `points` in sync with `points_per_completion`
+    if (updateData.points_per_completion !== undefined) {
+      updateData.points = updateData.points_per_completion;
+    }
+
+    // Strip ephemeral / non-DB fields
+    delete (updateData as Record<string, unknown>).target_user_email;
+
+    // Don't let a creator lower point_budget below already-spent amount —
+    // would break the budget invariant for assignments already approved.
+    const pointsSpent = Number(task.points_spent || 0);
+    if (
+      updateData.point_budget !== undefined &&
+      Number(updateData.point_budget) < pointsSpent
+    ) {
+      return {
+        success: false,
+        error: `Budget cannot be lower than already-spent ${pointsSpent.toFixed(2)} points`,
+      };
+    }
+
     // If user (not admin) edits a live task, set it back to pending approval
-    const updateData = { ...formData };
     const needsReapproval = !isAdmin && task.approval_status === "approved";
     if (needsReapproval) {
       updateData.approval_status = "pending_approval";
     }
-
-    // Remove fields that shouldn't be in the DB update
-    delete updateData.target_user_email;
 
     const { error } = await db
       .from("tasks")
@@ -423,7 +459,9 @@ export async function updateTask(
     }
 
     return { success: true, message: "Task updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update task" };
   }
 }
@@ -434,13 +472,22 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
+    const isAdmin = ["super_admin", "admin"].includes(session.user.role);
 
-    // Refund remaining budget to creator
+    // Look up the task FIRST so we can gate by ownership before doing
+    // anything destructive. Previously this action let any signed-in
+    // user delete any task and trigger a refund to the creator.
     const { data: task } = await db.from("tasks").select("title, created_by, point_budget, points_spent").eq("id", taskId).single();
+    if (!task) return { success: false, error: "Task not found" };
+
+    const t = task as Record<string, unknown>;
+    if (t.created_by !== session.user.id && !isAdmin) {
+      return { success: false, error: "You can only delete your own tasks" };
+    }
+
     let creatorId: string | null = null;
     let taskTitle = "a task";
-    if (task) {
-      const t = task as Record<string, unknown>;
+    {
       creatorId = (t.created_by as string) || null;
       taskTitle = String(t.title || "a task");
       const refund = Number(t.point_budget || 0) - Number(t.points_spent || 0);
@@ -460,7 +507,6 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
 
     // Notify the creator in real-time if someone else (admin) deleted their task
     if (creatorId && creatorId !== session.user.id) {
-      const isAdmin = ["super_admin", "admin"].includes(session.user.role);
       const deleterName = isAdmin ? "An admin" : (session.user.name || "Someone");
       await db.from("notifications").insert({
         user_id: creatorId,
@@ -474,7 +520,9 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "delete_task", "task", String(taskId), { title: taskTitle });
 
     return { success: true, message: "Task deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete task" };
   }
 }
@@ -540,7 +588,9 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
     }
 
     return { success: true, message: isAdmin ? "Task published" : "Task submitted for approval" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to publish task" };
   }
 }
@@ -581,6 +631,13 @@ export async function getTasks(params: PaginationParams & {
 }
 
 export async function getTaskById(taskId: number) {
+  // Server actions are POST endpoints — anyone with a valid action ID can
+  // call them, so this function MUST self-guard. We expose task content
+  // only to the creator, an assigned user, an admin, or the leader of the
+  // target group.
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
   const db = getServerClient();
 
   const { data: task } = await db
@@ -591,6 +648,25 @@ export async function getTaskById(taskId: number) {
 
   if (!task) return null;
 
+  const t = task as Record<string, unknown>;
+  const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+  const isCreator = t.created_by === session.user.id;
+  const group = t.groups as Record<string, unknown> | null;
+  const isGroupLeader = !!group && group.leader_id === session.user.id;
+
+  let isAssignee = false;
+  if (!isAdmin && !isCreator && !isGroupLeader) {
+    const { data: mine } = await db
+      .from("task_assignments")
+      .select("id")
+      .eq("task_id", taskId)
+      .eq("user_id", session.user.id)
+      .limit(1);
+    isAssignee = ((mine || []) as Record<string, unknown>[]).length > 0;
+  }
+
+  if (!isAdmin && !isCreator && !isGroupLeader && !isAssignee) return null;
+
   const { data: assignments } = await db
     .from("task_assignments")
     .select("*, users!task_assignments_user_id_fkey(id, name, email, image)")
@@ -598,7 +674,7 @@ export async function getTaskById(taskId: number) {
     .order("created_at", { ascending: false });
 
   return {
-    task: task as Record<string, unknown>,
+    task: t,
     assignments: (assignments || []) as Record<string, unknown>[],
   };
 }

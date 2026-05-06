@@ -1,10 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, Badge } from "@/components/ui";
+import { Card, CardContent, Badge, Select } from "@/components/ui";
 import { Trophy, Medal, Award, Flame, Coins, CheckCircle2, Crown } from "lucide-react";
 import { getLeaderboard } from "@/lib/actions/points";
 import { getInitials } from "@/lib/utils";
+
+type TimeFilter = "all_time" | "this_month" | "this_week" | "today";
+
+const TIME_LABEL: Record<TimeFilter, string> = {
+  all_time: "All Time",
+  this_month: "This Month",
+  this_week: "This Week",
+  today: "Today",
+};
 
 // ============================================================================
 // Leaderboard — desktop layout (podium grid + table) untouched.
@@ -18,9 +28,11 @@ import { getInitials } from "@/lib/utils";
 // ============================================================================
 
 export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("all_time");
+
   const { data: entries, isLoading } = useQuery({
-    queryKey: ["leaderboard", "global", "all_time"],
-    queryFn: () => getLeaderboard("global", "all_time"),
+    queryKey: ["leaderboard", "global", timeFilter],
+    queryFn: () => getLeaderboard("global", timeFilter),
   });
 
   const medals = [
@@ -29,10 +41,24 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
     { icon: Award, color: "text-amber-600", bg: "bg-amber-600/10", border: "border-amber-600/30", label: "3rd" },
   ];
 
-  const top3 = !isLoading && entries && entries.length >= 3 ? entries.slice(0, 3) : null;
+  const top3 = !isLoading && entries && entries.length > 0 ? entries.slice(0, 3) : null;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {/* Time-window filter */}
+      <div className="flex items-center justify-end">
+        <Select
+          value={timeFilter}
+          onChange={(e) => setTimeFilter(e.target.value as TimeFilter)}
+          className="w-40"
+          aria-label="Leaderboard time window"
+        >
+          {(Object.keys(TIME_LABEL) as TimeFilter[]).map((k) => (
+            <option key={k} value={k}>{TIME_LABEL[k]}</option>
+          ))}
+        </Select>
+      </div>
+
       {/* ====================================================================
           DESKTOP PODIUM — original 3-column layout, untouched
           ==================================================================== */}

@@ -10,7 +10,7 @@ import { getMyAssignmentForTask } from "@/lib/actions/assignments";
 import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { UserProfileModal } from "./user-profile-modal";
-import { RichTextContent } from "./rich-text-editor";
+import { RichTextContent } from "./rich-text-content";
 
 interface Props {
   data: { task: Record<string, unknown>; assignments: Record<string, unknown>[] };

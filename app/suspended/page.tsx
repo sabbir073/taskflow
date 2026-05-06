@@ -4,7 +4,10 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { getServerClient } from "@/lib/db/supabase";
 import { SuspendedView } from "@/components/shared/suspended-view";
 
-export const metadata: Metadata = { title: "Account Suspended" };
+export const metadata: Metadata = {
+  title: "Account Suspended",
+  robots: { index: false, follow: false },
+};
 
 export default async function SuspendedPage() {
   const user = await requireAuth();

@@ -171,6 +171,8 @@ export function Separator({ className, ...props }: React.HTMLAttributes<HTMLDivE
   return <div className={cn("border-t border-border/50", className)} {...props} />;
 }
 
+export { Modal } from "./modal";
+
 // ===== ICON INPUT WRAPPER =====
 
 export function IconInput({

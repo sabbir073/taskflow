@@ -89,7 +89,9 @@ export async function submitContactForm(
         }));
         await db.from("notifications").insert(notifs as never[]);
       }
-    } catch {
+    } catch (err) {
+
+      console.error(err);
       // ignore
     }
 
@@ -182,7 +184,9 @@ export async function updateContactStatus(
       new_status: status,
     });
     return { success: true, message: "Updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update" };
   }
 }
@@ -199,7 +203,9 @@ export async function deleteContactSubmission(id: number): Promise<ApiResponse> 
 
     await recordAudit(db, session.user.id, "contact_delete", "contact_submission", String(id));
     return { success: true, message: "Deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete" };
   }
 }

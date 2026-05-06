@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Select, Textarea, Btn, FieldError } from "@/components/ui";
 import { useTaskTypes } from "@/hooks/use-tasks";
@@ -46,7 +46,7 @@ export function TaskEditForm({ task, taskId }: Props) {
   const [newUrl, setNewUrl] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormShape>({
+  const { register, handleSubmit, watch, control, setValue, formState: { errors } } = useForm<FormShape>({
     defaultValues: {
       title: String(task.title || ""),
       description: String(task.description || ""),
@@ -62,8 +62,10 @@ export function TaskEditForm({ task, taskId }: Props) {
 
   const showAiPrompt = taskTypeNeedsAiPrompt(selectedTaskType?.slug as string | undefined);
 
-  const watchBudget = watch("point_budget");
-  const watchPerCompletion = watch("points_per_completion");
+  // useWatch instead of `watch()` so React Compiler can memoize children
+  // that consume these values.
+  const watchBudget = useWatch({ control, name: "point_budget" });
+  const watchPerCompletion = useWatch({ control, name: "points_per_completion" });
 
   useEffect(() => {
     if (isIndividual) setValue("point_budget", watchPerCompletion || 0);

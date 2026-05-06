@@ -72,13 +72,11 @@ export async function getQuota(
   const rawLimit = plan ? (kind === "task" ? plan.max_tasks : plan.max_groups) : null;
   // Scale the plan's base (monthly) limit by how many months the user paid
   // for. yearly = 12× monthly quota, half_yearly = 6×, monthly = 1×.
-  // null multiplier (forever) keeps limit as-is since it's effectively
-  // unlimited over a forever window.
   const mult = periodMultiplier(sub.period_type as string | null);
   // Carry-over = leftover quota from the previous subscription that was
   // added to this one at purchase time. It rides on top of the base limit.
   const carry = Number(kind === "task" ? sub.carry_over_tasks : sub.carry_over_groups) || 0;
-  const limit = rawLimit == null ? null : Number(rawLimit) * (mult ?? 1) + carry;
+  const limit = rawLimit == null ? null : Number(rawLimit) * mult + carry;
 
   // Count created in the current billing window
   const table = kind === "task" ? "tasks" : "groups";
@@ -139,7 +137,7 @@ export async function dispatchSubscriptionNotifications(db: DB, userId: string):
   if (!sub) return;
 
   const expiresAtStr = sub.expires_at as string | null;
-  if (!expiresAtStr) return; // forever plans have no expiry
+  if (!expiresAtStr) return; // legacy rows without an expiry — skip
 
   const expiresAt = new Date(expiresAtStr).getTime();
   const now = Date.now();
@@ -157,51 +155,83 @@ export async function dispatchSubscriptionNotifications(db: DB, userId: string):
     return { email: String(row?.email || ""), name: String(row?.name || "there") };
   }
 
-  // Expired
-  if (expiresAt <= now && sub.notified_expired !== true) {
+  // Race-safe write pattern: try to flip the flag with a conditional
+  // update first; only the caller whose UPDATE actually changed a row
+  // proceeds to insert the notification + send the email. Two concurrent
+  // dashboard renders that both read the flag as false will see only one
+  // of them get rowsAffected=1 — the other gets 0 and bails out.
+  async function fireOnce(
+    flagColumn: "notified_expired" | "notified_expiring_1d" | "notified_expiring_7d",
+    notif: { title: string; message: string; event: string },
+    emailSender: () => Promise<void>,
+  ) {
+    const { data: claimed } = await db
+      .from("user_subscriptions")
+      .update({ [flagColumn]: true } as never)
+      .eq("id", subId)
+      .eq(flagColumn, false)
+      .select("id");
+    if (!claimed || (claimed as Record<string, unknown>[]).length === 0) return;
+
     await db.from("notifications").insert({
       user_id: userId,
       type: "system",
-      title: "Subscription Expired",
-      message: `${plan} has expired. Renew now to keep creating tasks, groups and submitting proofs.`,
+      title: notif.title,
+      message: notif.message,
       link: "/plans",
-      data: { subscription_id: subId, event: "expired" },
+      data: { subscription_id: subId, event: notif.event },
     } as never);
-    const u = await fetchUser();
-    if (u.email) await sendSubscriptionExpiredEmail(u.email, u.name, plan);
-    await db.from("user_subscriptions").update({ notified_expired: true } as never).eq("id", subId);
+    await emailSender();
+  }
+
+  // Expired
+  if (expiresAt <= now && sub.notified_expired !== true) {
+    await fireOnce(
+      "notified_expired",
+      {
+        title: "Subscription Expired",
+        message: `${plan} has expired. Renew now to keep creating tasks, groups and submitting proofs.`,
+        event: "expired",
+      },
+      async () => {
+        const u = await fetchUser();
+        if (u.email) await sendSubscriptionExpiredEmail(u.email, u.name, plan);
+      },
+    );
     return;
   }
 
   // Expiring within 1 day (and not yet expired)
   if (daysLeft <= 1 && daysLeft > 0 && sub.notified_expiring_1d !== true) {
-    await db.from("notifications").insert({
-      user_id: userId,
-      type: "system",
-      title: "Subscription Expiring Tomorrow",
-      message: `${plan} expires in less than a day. Renew now to avoid losing access.`,
-      link: "/plans",
-      data: { subscription_id: subId, event: "expiring_1d" },
-    } as never);
-    const u = await fetchUser();
-    if (u.email) await sendSubscriptionExpiringEmail(u.email, u.name, plan, daysLeft);
-    await db.from("user_subscriptions").update({ notified_expiring_1d: true } as never).eq("id", subId);
+    await fireOnce(
+      "notified_expiring_1d",
+      {
+        title: "Subscription Expiring Tomorrow",
+        message: `${plan} expires in less than a day. Renew now to avoid losing access.`,
+        event: "expiring_1d",
+      },
+      async () => {
+        const u = await fetchUser();
+        if (u.email) await sendSubscriptionExpiringEmail(u.email, u.name, plan, daysLeft);
+      },
+    );
     return;
   }
 
   // Expiring within 7 days
   if (daysLeft <= 7 && daysLeft > 1 && sub.notified_expiring_7d !== true) {
-    await db.from("notifications").insert({
-      user_id: userId,
-      type: "system",
-      title: "Subscription Expiring Soon",
-      message: `${plan} expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}. Renew to keep your access.`,
-      link: "/plans",
-      data: { subscription_id: subId, event: "expiring_7d" },
-    } as never);
-    const u = await fetchUser();
-    if (u.email) await sendSubscriptionExpiringEmail(u.email, u.name, plan, daysLeft);
-    await db.from("user_subscriptions").update({ notified_expiring_7d: true } as never).eq("id", subId);
+    await fireOnce(
+      "notified_expiring_7d",
+      {
+        title: "Subscription Expiring Soon",
+        message: `${plan} expires in ${daysLeft} days. Renew to keep your access.`,
+        event: "expiring_7d",
+      },
+      async () => {
+        const u = await fetchUser();
+        if (u.email) await sendSubscriptionExpiringEmail(u.email, u.name, plan, daysLeft);
+      },
+    );
   }
 }
 
@@ -229,7 +259,7 @@ export async function computeRemainingQuota(
   if (!sub) return { tasks: 0, groups: 0 };
 
   const plan = sub.plans as Record<string, unknown> | undefined;
-  const mult = periodMultiplier(sub.period_type as string | null) ?? 1;
+  const mult = periodMultiplier(sub.period_type as string | null);
   const carryTasks = Number(sub.carry_over_tasks) || 0;
   const carryGroups = Number(sub.carry_over_groups) || 0;
   const taskLimit = plan?.max_tasks == null ? null : Number(plan.max_tasks) * mult + carryTasks;

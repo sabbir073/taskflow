@@ -1,0 +1,3 @@
+- [Project shape](project_shape.md) — TaskFlow Next.js app with Supabase backend; route-grouped (auth/dashboard/marketing); server actions in lib/actions/*; tanstack-query hooks; auth via NextAuth credentials.
+- [QA conventions](qa_conventions.md) — Server actions self-guard with auth/role checks; UI also gates via requireRole; recurring pattern: client-side validators look thin while server-side zod schemas are stricter.
+- [Recurring gaps](recurring_gaps.md) — Recurring problems: client uploads skip type/size validation; admin role-change UX missing one role variant; toggle/delete actions on lists silently swallow errors via `catch {}` returning generic messages.

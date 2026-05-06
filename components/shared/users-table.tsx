@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
-import { Card, CardContent, CardFooter, Input, Btn, Select, Badge } from "@/components/ui";
-import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus, CheckCircle, XCircle, Clock, ShieldCheck, ShieldAlert, Download, Loader2 } from "lucide-react";
+import { Card, CardContent, CardFooter, Input, Btn, Select, Badge, Modal } from "@/components/ui";
+import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus, CheckCircle, XCircle, Clock, ShieldCheck, ShieldAlert, Download, Loader2, Users as UsersIcon } from "lucide-react";
 import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints, useApproveUser, useRejectUser } from "@/hooks/use-users";
 import { getUserById } from "@/lib/actions/users";
 import { exportUsersCsv } from "@/lib/actions/exports";
@@ -47,6 +47,10 @@ export function UsersTable() {
   const [planTarget, setPlanTarget] = useState<string | null>(null);
   const [viewProfile, setViewProfile] = useState<Record<string, unknown> | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; role: UserRole; label: string; description: string } | null>(null);
+  const [statusChangeTarget, setStatusChangeTarget] = useState<{ userId: string; status: UserStatus; label: string; description: string } | null>(null);
+  const pointsTitleId = useId();
+  const viewProfileTitleId = useId();
 
   async function openProfile(userId: string) {
     setLoadingProfile(true);
@@ -253,30 +257,63 @@ export function UsersTable() {
                 </>
               )}
               <div className="border-t border-border/50 my-1" />
-              <button onClick={() => { updateRole.mutate({ userId, role: "admin" }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Admin</button>
-              <button onClick={() => { updateRole.mutate({ userId, role: "user" }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Make Member</button>
+              <button onClick={() => { setRoleChangeTarget({ userId, role: "admin", label: "Make Admin", description: "Promote this user to Admin? Admins can manage users, tasks, plans, and most system settings." }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Admin</button>
+              <button onClick={() => { setRoleChangeTarget({ userId, role: "group_leader", label: "Make Group Leader", description: "Promote this user to Group Leader? Group Leaders can manage their own groups and members." }); setOpenMenu(null); }} className={itemCls}><UsersIcon className={`${iconCls} text-muted-foreground`} /> Make Group Leader</button>
+              <button onClick={() => { setRoleChangeTarget({ userId, role: "user", label: "Make Member", description: "Demote this user to a regular Member? They will lose any elevated permissions." }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Make Member</button>
               {status === "active" ? (
-                <button onClick={() => { updateStatus.mutate({ userId, status: "suspended" }); setOpenMenu(null); }} className={itemCls}><UserX className={`${iconCls} text-muted-foreground`} /> Suspend</button>
+                <button onClick={() => { setStatusChangeTarget({ userId, status: "suspended", label: "Suspend User", description: "Suspend this user? They will lose access until reactivated." }); setOpenMenu(null); }} className={itemCls}><UserX className={`${iconCls} text-muted-foreground`} /> Suspend</button>
               ) : (
-                <button onClick={() => { updateStatus.mutate({ userId, status: "active" }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Activate</button>
+                <button onClick={() => { setStatusChangeTarget({ userId, status: "active", label: "Activate User", description: "Activate this user? They will regain access immediately." }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Activate</button>
               )}
               <button onClick={() => { setPointsTarget(userId); setPointsMode("assign"); setOpenMenu(null); }} className={itemCls}><Plus className={`${iconCls} text-success`} /> Assign Points</button>
               <button onClick={() => { setPointsTarget(userId); setPointsMode("deduct"); setOpenMenu(null); }} className={itemCls}><Minus className={`${iconCls} text-error`} /> Deduct Points</button>
               <button onClick={() => { setPlanTarget(userId); setOpenMenu(null); }} className={itemCls}><CreditCard className={`${iconCls} text-primary`} /> Assign Plan</button>
               <div className="border-t border-border/50 my-1" />
-              <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className={`${itemCls} text-error hover:bg-error/5`}><Trash2 className={iconCls} /> Delete</button>
+              <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className={`${itemCls} text-error hover:bg-error/5`}><Trash2 className={iconCls} /> Ban &amp; Anonymize</button>
             </div>
           </>,
           document.body
         );
       })()}
 
-      <ConfirmDialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) removeUser.mutate(deleteTarget); setDeleteTarget(null); }} title="Delete User" description="This will ban the user and anonymize their data." confirmLabel="Delete User" isLoading={removeUser.isPending} />
+      <ConfirmDialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) removeUser.mutate(deleteTarget); setDeleteTarget(null); }} title="Ban & Anonymize User" description="This will ban the user and anonymize their data. This action cannot be undone." confirmLabel="Ban & Anonymize" isLoading={removeUser.isPending} />
 
-      {!!pointsTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPointsTarget(null)}>
-          <div className="bg-card rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+      <ConfirmDialog
+        isOpen={!!roleChangeTarget}
+        onClose={() => setRoleChangeTarget(null)}
+        onConfirm={() => {
+          if (roleChangeTarget) updateRole.mutate({ userId: roleChangeTarget.userId, role: roleChangeTarget.role });
+          setRoleChangeTarget(null);
+        }}
+        title={roleChangeTarget?.label || "Change Role"}
+        description={roleChangeTarget?.description || ""}
+        confirmLabel={roleChangeTarget?.label || "Confirm"}
+        isLoading={updateRole.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={!!statusChangeTarget}
+        onClose={() => setStatusChangeTarget(null)}
+        onConfirm={() => {
+          if (statusChangeTarget) updateStatus.mutate({ userId: statusChangeTarget.userId, status: statusChangeTarget.status });
+          setStatusChangeTarget(null);
+        }}
+        title={statusChangeTarget?.label || "Change Status"}
+        description={statusChangeTarget?.description || ""}
+        confirmLabel={statusChangeTarget?.label || "Confirm"}
+        isLoading={updateStatus.isPending}
+      />
+
+      <Modal
+        isOpen={!!pointsTarget}
+        onClose={() => setPointsTarget(null)}
+        labelledBy={pointsTitleId}
+        backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        panelClassName="bg-card rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-border"
+      >
+        {!!pointsTarget && (
+          <>
+            <h3 id={pointsTitleId} className="text-lg font-bold mb-4 flex items-center gap-2">
               {pointsMode === "assign" ? <Plus className="w-5 h-5 text-success" /> : <Minus className="w-5 h-5 text-error" />}
               {pointsMode === "assign" ? "Assign Points" : "Deduct Points"}
             </h3>
@@ -285,7 +322,7 @@ export function UsersTable() {
                 <label className="text-sm font-medium">Amount</label>
                 <div className="relative">
                   <Coins className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input type="number" step="0.01" min="0" value={pointsAmount} onChange={(e) => setPointsAmount(e.target.value)} placeholder="e.g. 100" autoFocus className="pl-11" />
+                  <Input type="number" step="0.01" min="1" value={pointsAmount} onChange={(e) => setPointsAmount(e.target.value)} placeholder="e.g. 100" autoFocus className="pl-11" />
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   {pointsMode === "assign" ? "This amount will be added to the user's balance" : "This amount will be deducted from the user's balance"}
@@ -298,7 +335,7 @@ export function UsersTable() {
               <div className="flex gap-3 justify-end pt-2">
                 <Btn variant="outline" onClick={() => { setPointsTarget(null); setPointsAmount(""); setPointsReason(""); }}>Cancel</Btn>
                 <Btn variant={pointsMode === "assign" ? "primary" : "danger"}
-                  disabled={!pointsAmount || parseFloat(pointsAmount) <= 0}
+                  disabled={!pointsAmount || parseFloat(pointsAmount) < 1}
                   isLoading={assignPts.isPending}
                   onClick={() => {
                     const amount = parseFloat(pointsAmount);
@@ -312,9 +349,9 @@ export function UsersTable() {
                 </Btn>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
       {/* Assign Plan modal */}
       {!!planTarget && (
@@ -326,12 +363,17 @@ export function UsersTable() {
       )}
 
       {/* User Profile Modal */}
-      {(viewProfile || loadingProfile) && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex sm:items-center sm:justify-center sm:p-4" onClick={() => setViewProfile(null)}>
-          <div className="flex flex-col w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[90vh] bg-card sm:rounded-2xl shadow-2xl sm:border border-border overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            {loadingProfile ? (
-              <div className="flex-1 flex items-center justify-center p-12"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
-            ) : viewProfile ? (() => {
+      <Modal
+        isOpen={!!viewProfile || loadingProfile}
+        onClose={() => setViewProfile(null)}
+        labelledBy={viewProfileTitleId}
+        ariaLabel={viewProfile ? undefined : "Loading user profile"}
+        backdropClassName="fixed inset-0 z-50 bg-black/50 flex sm:items-center sm:justify-center sm:p-4"
+        panelClassName="flex flex-col w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[90vh] bg-card sm:rounded-2xl shadow-2xl sm:border border-border overflow-hidden"
+      >
+        {loadingProfile ? (
+          <div className="flex-1 flex items-center justify-center p-12"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
+        ) : viewProfile ? (() => {
               const vu = viewProfile.user as Record<string, unknown>;
               const vp = viewProfile.profile as Record<string, unknown> | null;
               const vs = viewProfile.stats as Record<string, unknown> | null;
@@ -365,7 +407,7 @@ export function UsersTable() {
                     {/* Identity row: name/email/badges on left, plan card on right (sm+) */}
                     <div className="mb-4 flex flex-col sm:flex-row sm:items-start gap-3">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-bold break-words">{vName}</h3>
+                        <h3 id={viewProfileTitleId} className="text-lg font-bold break-words">{vName}</h3>
                         <p className="text-sm text-muted-foreground break-all">{vEmail}</p>
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <Badge variant="primary">{ROLE_LABELS[vRole] || vRole}</Badge>
@@ -468,9 +510,7 @@ export function UsersTable() {
                 </>
               );
             })() : null}
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }
@@ -504,6 +544,7 @@ function AssignPlanModal({
   const assignSub = useAdminAssignSubscription();
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<BillingPeriod>("monthly");
+  const titleId = useId();
 
   const selected = plans.find((p) => (p.id as number) === selectedPlanId);
 
@@ -529,11 +570,16 @@ function AssignPlanModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 overflow-y-auto" onClick={onClose}>
-      <div className="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border my-auto" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      labelledBy={titleId}
+      backdropClassName="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 overflow-y-auto"
+      panelClassName="bg-card rounded-2xl w-full max-w-lg shadow-2xl border border-border my-auto"
+    >
         <div className="p-5 border-b border-border/60 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-bold flex items-center gap-2"><CreditCard className="w-5 h-5 text-primary" /> Assign Subscription Plan</h3>
+            <h3 id={titleId} className="text-lg font-bold flex items-center gap-2"><CreditCard className="w-5 h-5 text-primary" /> Assign Subscription Plan</h3>
             <p className="text-xs text-muted-foreground mt-0.5">Pick a plan + billing period. Included credits are added to the user&apos;s wallet instantly.</p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
@@ -560,7 +606,21 @@ function AssignPlanModal({
                     <button
                       key={id}
                       type="button"
-                      onClick={() => setSelectedPlanId(id)}
+                      onClick={() => {
+                        setSelectedPlanId(id);
+                        // Auto-pick a valid period for the chosen plan so the modal
+                        // never submits a period that the plan doesn't price.
+                        const available: BillingPeriod[] = [];
+                        if (plan.price_monthly != null) available.push("monthly");
+                        if (plan.price_half_yearly != null) available.push("half_yearly");
+                        if (plan.price_yearly != null) available.push("yearly");
+                        if (available.length === 0) {
+                          available.push((String(plan.period || "monthly") as BillingPeriod));
+                        }
+                        if (!available.includes(selectedPeriod)) {
+                          setSelectedPeriod(available[0]);
+                        }
+                      }}
                       className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
                         isSelected ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/30 hover:bg-muted/20"
                       }`}
@@ -624,7 +684,6 @@ function AssignPlanModal({
             Assign Plan
           </Btn>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

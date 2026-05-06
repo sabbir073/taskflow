@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -19,7 +19,6 @@ const PERIOD_LABEL: Record<string, string> = {
   monthly: "Monthly",
   half_yearly: "6 Months",
   yearly: "Yearly",
-  forever: "Forever",
 };
 
 const profileSchema = z.object({
@@ -64,11 +63,17 @@ export function ProfileView({ sessionUser, profileData }: Props) {
   const { data: quota } = useMyQuotaUsage();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const verifyToastFired = useRef(false);
 
-  // Show a toast once when the user returns from the verify-email link
+  // Show a toast once when the user returns from the verify-email link.
+  // Strict-mode double-invocation + searchParams identity churn would
+  // otherwise fire the toast twice and call router.replace each time —
+  // a ref guard makes the side effect fire-once per page lifetime.
   useEffect(() => {
+    if (verifyToastFired.current) return;
     const v = searchParams.get("verify");
     if (!v) return;
+    verifyToastFired.current = true;
     if (v === "success") toast.success("Email verified successfully!");
     else if (v === "failed") toast.error("Verification link is invalid or expired");
     else if (v === "missing") toast.error("Verification token missing");
@@ -86,6 +91,20 @@ export function ProfileView({ sessionUser, profileData }: Props) {
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
+    const MAX_BYTES = 2 * 1024 * 1024;
+    if (!ALLOWED.includes(file.type)) {
+      toast.error("Avatar must be a PNG, JPEG, or WebP image");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      toast.error("Avatar must be 2 MB or smaller");
+      e.target.value = "";
+      return;
+    }
+
     setUploadingAvatar(true);
     try {
       const formData = new FormData();
@@ -94,13 +113,14 @@ export function ProfileView({ sessionUser, profileData }: Props) {
       const data = await res.json();
       if (data.url) {
         setAvatarUrl(data.url);
-        await updateProfile({ name: sessionUser.name || "", avatar_url: data.url });
+        await updateProfile({ avatar_url: data.url });
         toast.success("Avatar updated");
       }
     } catch {
       toast.error("Failed to upload avatar");
     }
     setUploadingAvatar(false);
+    e.target.value = "";
   }
 
   const profile = profileData?.profile;
@@ -179,7 +199,7 @@ export function ProfileView({ sessionUser, profileData }: Props) {
               )}
               <label className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-xl">
                 {uploadingAvatar ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <Camera className="w-5 h-5 text-white" />}
-                <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
+                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} className="hidden" />
               </label>
             </div>
           </div>

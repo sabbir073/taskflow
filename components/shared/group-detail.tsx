@@ -16,7 +16,7 @@ import {
 import { GroupEditForm } from "./group-edit-form";
 import { UserProfileModal } from "./user-profile-modal";
 import { ConfirmDialog } from "./confirm-dialog";
-import { RichTextContent } from "./rich-text-editor";
+import { RichTextContent } from "./rich-text-content";
 import { getInitials, formatDate, formatRelativeTime } from "@/lib/utils";
 
 interface Props {

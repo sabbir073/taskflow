@@ -206,7 +206,9 @@ export async function approveGroup(groupId: number): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "approve_group", "group", String(groupId), { name: groupName });
 
     return { success: true, message: "Group approved" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to approve group" };
   }
 }
@@ -240,7 +242,9 @@ export async function rejectGroup(groupId: number, reason?: string): Promise<Api
     await recordAudit(db, session.user.id, "reject_group", "group", String(groupId), { name: String(g.name || ""), reason: reason || null });
 
     return { success: true, message: "Group rejected" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to reject group" };
   }
 }
@@ -317,7 +321,9 @@ export async function updateGroup(
     }
 
     return { success: true, message: "Group updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update group" };
   }
 }
@@ -350,7 +356,9 @@ export async function suspendGroup(groupId: number, reason?: string): Promise<Ap
     );
 
     return { success: true, message: "Group suspended" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to suspend group" };
   }
 }
@@ -379,7 +387,9 @@ export async function unsuspendGroup(groupId: number): Promise<ApiResponse> {
     );
 
     return { success: true, message: "Group reactivated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to unsuspend group" };
   }
 }
@@ -419,7 +429,9 @@ export async function deleteGroup(groupId: number): Promise<ApiResponse> {
     await recordAudit(db, session.user.id, "delete_group", "group", String(groupId), { name: String(g.name || "") });
 
     return { success: true, message: "Group deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete group" };
   }
 }
@@ -461,7 +473,9 @@ export async function requestGroupDeletion(groupId: number, reason?: string): Pr
     );
 
     return { success: true, message: "Deletion request sent to admins" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to request deletion" };
   }
 }
@@ -487,7 +501,9 @@ export async function cancelDeletionRequest(groupId: number): Promise<ApiRespons
     } as never).eq("id", groupId);
 
     return { success: true, message: "Deletion request canceled" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to cancel request" };
   }
 }
@@ -864,7 +880,9 @@ export async function notifyAssignmentToSubmit(assignmentId: number): Promise<Ap
     );
 
     return { success: true, message: "Reminder sent" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to send reminder" };
   }
 }
@@ -976,7 +994,9 @@ export async function handleLeaderRemoval(userId: string, reason: string): Promi
           .eq("id", gid);
       }
     }
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     // Silent — this runs as a side-effect of role changes; never block the
     // originating action if the handoff logic fails.
   }

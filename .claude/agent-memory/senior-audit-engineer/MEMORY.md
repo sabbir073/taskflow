@@ -1,0 +1,4 @@
+- [TaskFlow auth boundary lives in server actions, not RLS](project_taskflow_architecture.md) — service-role client bypasses RLS; missing `auth()` checks in actions are P0
+- [Custom Next.js: proxy.ts replaces middleware.ts; consult node_modules docs](project_custom_nextjs_proxy.md) — verify against `node_modules/next/dist/docs/` before flagging Next behavior
+- [JWT caches role/status 24h; status has fresh-DB compensator, role does not](project_jwt_staleness.md) — don't propose moving status checks back to proxy
+- [Audit resources: bundled Next docs, migrations, pnpm audit](reference_audit_resources.md) — start here for future audits

@@ -87,7 +87,9 @@ export async function updateNotice(
     const { error } = await db.from("notices").update(update as never).eq("id", noticeId);
     if (error) return { success: false, error: "Failed to update notice" };
     return { success: true, message: "Notice updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update notice" };
   }
 }
@@ -102,7 +104,9 @@ export async function deleteNotice(noticeId: number): Promise<ApiResponse> {
     const { error } = await db.from("notices").delete().eq("id", noticeId);
     if (error) return { success: false, error: "Failed to delete notice" };
     return { success: true, message: "Notice deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete notice" };
   }
 }

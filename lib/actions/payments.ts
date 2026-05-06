@@ -141,7 +141,9 @@ export async function updatePaymentMethod(
     const { error } = await db.from("payment_methods").update(update as never).eq("id", id);
     if (error) return { success: false, error: "Failed to update payment method" };
     return { success: true, message: "Payment method updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update payment method" };
   }
 }
@@ -156,7 +158,9 @@ export async function deletePaymentMethod(id: number): Promise<ApiResponse> {
     const { error } = await db.from("payment_methods").delete().eq("id", id);
     if (error) return { success: false, error: "Failed to delete payment method" };
     return { success: true, message: "Payment method deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete payment method" };
   }
 }
@@ -223,7 +227,9 @@ export async function updatePointPackage(
     const { error } = await db.from("point_packages").update(update as never).eq("id", id);
     if (error) return { success: false, error: "Failed to update package" };
     return { success: true, message: "Point package updated" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to update package" };
   }
 }
@@ -237,7 +243,9 @@ export async function deletePointPackage(id: number): Promise<ApiResponse> {
     const { error } = await db.from("point_packages").delete().eq("id", id);
     if (error) return { success: false, error: "Failed to delete package" };
     return { success: true, message: "Point package deleted" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to delete package" };
   }
 }
@@ -341,7 +349,11 @@ export async function submitPayment(formData: z.infer<typeof paymentSubmitSchema
       validated.notes ? validated.notes : null,
     ].filter(Boolean).join(" ");
 
-    const { error } = await db.from("payments").insert({
+    // Insert returning the trigger-generated invoice_number so we can read
+    // the *just-inserted* row's number atomically — re-querying by
+    // (user_id, transaction_id) afterwards races with concurrent submits
+    // by the same user.
+    const { data: insertedPayment, error } = await db.from("payments").insert({
       user_id: session.user.id,
       purpose: validated.purpose,
       plan_id: validated.plan_id || null,
@@ -353,9 +365,12 @@ export async function submitPayment(formData: z.infer<typeof paymentSubmitSchema
       transaction_id: validated.transaction_id,
       notes: combinedNotes || null,
       status: "pending",
-    } as never);
+    } as never).select("invoice_number").single();
 
-    if (error) return { success: false, error: "Failed to submit payment" };
+    if (error) {
+      console.error("[submitPayment] insert failed", error);
+      return { success: false, error: "Failed to submit payment" };
+    }
 
     const userName = session.user.name || "A user";
     await notifyAdmins(
@@ -385,18 +400,10 @@ export async function submitPayment(formData: z.infer<typeof paymentSubmitSchema
     const userEmail = userRow ? String((userRow as Record<string, unknown>).email || "") : "";
     const userDisplayName = userRow ? String((userRow as Record<string, unknown>).name || userName) : userName;
 
-    // Fetch the auto-generated invoice number for the just-inserted row
-    const { data: justInserted } = await db
-      .from("payments")
-      .select("invoice_number")
-      .eq("user_id", session.user.id)
-      .eq("transaction_id", validated.transaction_id)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    const invNum =
-      justInserted && (justInserted as Record<string, unknown>[])[0]
-        ? String((justInserted as Record<string, unknown>[])[0].invoice_number || "")
-        : "";
+    // Trigger-generated invoice number returned from the insert above
+    const invNum = insertedPayment
+      ? String((insertedPayment as Record<string, unknown>).invoice_number || "")
+      : "";
 
     const { data: methodName } = await db
       .from("payment_methods")
@@ -477,7 +484,9 @@ export async function createSignupPayment(data: {
     } as never);
     if (error) return { success: false, error: "Failed to record signup payment" };
     return { success: true };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to record signup payment" };
   }
 }
@@ -784,7 +793,9 @@ export async function reviewPayment(
     }
 
     return { success: true, message: action === "approve" ? "Payment approved" : "Payment rejected" };
-  } catch {
+  } catch (err) {
+
+    console.error(err);
     return { success: false, error: "Failed to review payment" };
   }
 }

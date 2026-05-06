@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X } from "lucide-react";
+import { Modal } from "@/components/ui";
 import { useActivePopups } from "@/hooks/use-popups";
 
 interface Props {
@@ -84,25 +85,24 @@ export function PopupDisplay({ target }: Props) {
   );
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={dismiss}
+    <Modal
+      isOpen={true}
+      onClose={dismiss}
+      ariaLabel="Promotional popup"
+      backdropClassName="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      panelClassName="bg-card rounded-2xl shadow-2xl border border-border/50 w-full max-w-lg overflow-hidden relative animate-in fade-in zoom-in-95 duration-300"
     >
-      <div
-        className="bg-card rounded-2xl shadow-2xl border border-border/50 w-full max-w-lg overflow-hidden relative animate-in fade-in zoom-in-95 duration-300"
-        onClick={(e) => e.stopPropagation()}
+      {/* Close button */}
+      <button
+        type="button"
+        onClick={dismiss}
+        className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
+        aria-label="Dismiss popup"
       >
-        {/* Close button */}
-        <button
-          type="button"
-          onClick={dismiss}
-          className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <X className="w-4 h-4" />
+      </button>
 
-        {content}
-      </div>
-    </div>
+      {content}
+    </Modal>
   );
 }

@@ -1,0 +1,2 @@
+- [TaskFlow perf baseline 2026-05-05](project_perf_baseline.md) — recurring LCP/INP/bundle problems found in audit
+- [TaskFlow stack & conventions](project_stack.md) — Next 16.2.2 / React 19 / Supabase; verify Next APIs against bundled docs

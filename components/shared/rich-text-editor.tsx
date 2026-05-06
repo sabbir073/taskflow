@@ -26,7 +26,6 @@ import {
   Highlighter, Subscript as SubIcon, Superscript as SupIcon,
   Table as TableIcon, Type, Palette, ChevronDown,
 } from "lucide-react";
-import DOMPurify from "isomorphic-dompurify";
 
 interface Props {
   value: string;
@@ -686,51 +685,7 @@ function YoutubeResizeView({ node, updateAttributes, selected }: NodeViewProps) 
   );
 }
 
-// ============================================================================
-// Render stored HTML
-// ============================================================================
-
-// DOMPurify config tuned to what Tiptap actually emits: formatting tags,
-// headings, lists, images, tables, links, plus YouTube iframes (whitelisted
-// hosts). Strips every <script>, event handler, inline javascript: URL, etc.
-const SANITIZE_CONFIG = {
-  ALLOWED_TAGS: [
-    "p", "br", "strong", "em", "u", "s", "code", "pre", "blockquote", "hr",
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "ul", "ol", "li",
-    "a", "img", "span", "div",
-    "table", "thead", "tbody", "tr", "th", "td",
-    "sub", "sup", "mark",
-    "iframe", "video",
-  ],
-  ALLOWED_ATTR: [
-    "href", "target", "rel",
-    "src", "alt", "title", "width", "height",
-    "style", "class",
-    "colspan", "rowspan",
-    "frameborder", "allow", "allowfullscreen", "controls",
-  ],
-  // Only allow iframes pointing at YouTube (matches the editor's Youtube ext).
-  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|ftp|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
-  ADD_ATTR: ["target"],
-  FORBID_TAGS: ["script", "style", "object", "embed", "form", "input", "button"],
-  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
-};
-
-export function RichTextContent({ html }: { html: string }) {
-  if (!html || html === "<p></p>") return null;
-  const clean = DOMPurify.sanitize(html, SANITIZE_CONFIG);
-  return (
-    <div
-      className="prose prose-sm dark:prose-invert max-w-none
-        prose-headings:font-bold prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-        prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5
-        prose-blockquote:border-l-primary/40 prose-blockquote:bg-muted/30 prose-blockquote:px-3 prose-blockquote:py-1 prose-blockquote:rounded-r-lg
-        prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px]
-        prose-a:text-primary prose-a:underline
-        prose-img:rounded-lg prose-img:max-w-full
-        prose-table:border-collapse prose-td:border prose-td:border-border prose-td:p-2 prose-th:border prose-th:border-border prose-th:p-2 prose-th:bg-muted/40"
-      dangerouslySetInnerHTML={{ __html: clean }}
-    />
-  );
-}
+// `RichTextContent` — the read-only renderer — now lives in
+// rich-text-content.tsx so display-only routes don't pull in the @tiptap
+// stack. Re-export here for backward compatibility.
+export { RichTextContent } from "./rich-text-content";

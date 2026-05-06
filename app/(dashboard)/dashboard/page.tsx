@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { requireAuth } from "@/lib/auth-helpers";
 import { getAdminDashboardStats, getUserDashboardStats, getRecentActivity, getTopPerformers } from "@/lib/actions/analytics";
 import { DashboardContent } from "@/components/shared/dashboard-content";
+import { DashboardFlashToast } from "@/components/shared/dashboard-flash-toast";
 import type { UserRole } from "@/types/database";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -18,13 +20,18 @@ export default async function DashboardPage() {
   ]);
 
   return (
-    <DashboardContent
-      userName={user.name?.split(" ")[0] || "User"}
-      isAdmin={isAdmin}
-      adminStats={adminStats}
-      userStats={userStats}
-      recentActivity={activity}
-      topPerformers={topPerformers}
-    />
+    <>
+      <Suspense fallback={null}>
+        <DashboardFlashToast />
+      </Suspense>
+      <DashboardContent
+        userName={user.name?.split(" ")[0] || "User"}
+        isAdmin={isAdmin}
+        adminStats={adminStats}
+        userStats={userStats}
+        recentActivity={activity}
+        topPerformers={topPerformers}
+      />
+    </>
   );
 }
