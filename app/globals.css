@@ -445,3 +445,22 @@ label[for],
 .animate-pulse-glow { animation: pulse-glow 2s infinite; }
 .animate-float     { animation: float 4s ease-in-out infinite; }
 .animate-shimmer   { animation: shimmer 3s linear infinite; }
+
+/* Hero decorative floating blobs — pure CSS so they don't drag
+   framer-motion into the LCP critical path. Same vertical/horizontal
+   drift, same easing, same infinite loop. */
+@keyframes hero-float-a {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-20px); }
+}
+@keyframes hero-float-b {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(18px); }
+}
+@keyframes hero-float-c {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(15px, -10px); }
+}
+.animate-hero-float-a { animation: hero-float-a 6s ease-in-out infinite; }
+.animate-hero-float-b { animation: hero-float-b 7s ease-in-out infinite; }
+.animate-hero-float-c { animation: hero-float-c 8s ease-in-out infinite; }

@@ -57,7 +57,7 @@ export function CookieConsent() {
             <p className="text-xs text-muted-foreground leading-relaxed">
               TaskFlow uses essential cookies to keep you signed in. We don&apos;t use ad or tracking cookies.{" "}
               <Link href="/cookies" className="text-primary hover:underline font-medium">
-                Learn more
+                Learn more about our cookie policy
               </Link>
               .
             </p>

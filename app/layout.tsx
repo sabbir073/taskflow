@@ -17,21 +17,10 @@ const SITE_URL =
   process.env.AUTH_URL ||
   "https://taskflow.app";
 
-// Hosts the browser will hit early on most pages — start the TCP/TLS
-// handshake during HTML parse rather than waiting for the first asset
-// or fetch. Saves ~150 ms on first image / first server-action call.
-function preconnectHost(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    return value.includes("://") ? new URL(value).origin : `https://${value}`;
-  } catch {
-    return null;
-  }
-}
-const preconnectHosts = [
-  preconnectHost(process.env.CLOUDFRONT_DOMAIN),
-  preconnectHost(process.env.NEXT_PUBLIC_SUPABASE_URL),
-].filter((h): h is string => h !== null);
+// Note: preconnect hints for CloudFront + Supabase moved to the
+// (dashboard) layout — those hosts only matter for authenticated views
+// (avatars, attachments, server-action data). Marketing pages don't
+// hit them, and Lighthouse penalised "unused preconnect" on /.
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -103,11 +92,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {preconnectHosts.map((host) => (
-          <link key={host} rel="preconnect" href={host} crossOrigin="anonymous" />
-        ))}
-      </head>
       <body className={`${inter.variable} font-sans min-h-screen bg-background text-foreground antialiased`} suppressHydrationWarning>
         <script
           type="application/ld+json"

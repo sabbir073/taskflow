@@ -1,13 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth-helpers";
-
-// Authenticated app — keep crawlers out. Even though proxy.ts redirects
-// unauthenticated visitors to /login, an explicit noindex prevents any
-// leaked dashboard URLs from being cached as branded snippets.
-export const metadata: Metadata = {
-  robots: { index: false, follow: false },
-};
 import { getSettings } from "@/lib/actions/settings";
 import { getServerClient } from "@/lib/db/supabase";
 import { dispatchSubscriptionNotifications } from "@/lib/subscription-check";
@@ -17,6 +10,29 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { SettingsProvider } from "@/components/providers/settings-provider";
 import { StatusWatcher } from "@/components/shared/status-watcher";
 import { PopupDisplay } from "@/components/shared/popup-display";
+
+// Authenticated app — keep crawlers out. Even though proxy.ts redirects
+// unauthenticated visitors to /login, an explicit noindex prevents any
+// leaked dashboard URLs from being cached as branded snippets.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
+// Preconnect hints scoped to the authenticated app. Marketing pages
+// don't load CloudFront / Supabase assets, so putting these in the
+// root layout earned an "unused preconnect" Lighthouse penalty.
+function preconnectHost(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return value.includes("://") ? new URL(value).origin : `https://${value}`;
+  } catch {
+    return null;
+  }
+}
+const preconnectHosts = [
+  preconnectHost(process.env.CLOUDFRONT_DOMAIN),
+  preconnectHost(process.env.NEXT_PUBLIC_SUPABASE_URL),
+].filter((h): h is string => h !== null);
 
 export default async function DashboardLayout({
   children,
@@ -63,6 +79,9 @@ export default async function DashboardLayout({
 
   return (
     <SettingsProvider initialSettings={settings}>
+      {preconnectHosts.map((host) => (
+        <link key={host} rel="preconnect" href={host} crossOrigin="anonymous" />
+      ))}
       <StatusWatcher mode="dashboard" />
       {/* Dashboard popup — admin never sees it, only regular users */}
       {!isAdmin && <PopupDisplay target="dashboard" />}

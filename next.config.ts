@@ -34,7 +34,11 @@ const nextConfig: NextConfig = {
     // hundreds of named exports. Without this, an `import { Bell } from
     // "lucide-react"` can pull a chunk many times bigger than the icon
     // we actually use.
-    optimizePackageImports: ["lucide-react", "date-fns", "@heroui/react"],
+    optimizePackageImports: ["lucide-react", "date-fns", "framer-motion"],
+    // Inline critical CSS so the initial paint isn't blocked on the
+    // 19 KB Tailwind output chunk that PageSpeed flags as render-blocking
+    // for ~450 ms on Slow 4G.
+    optimizeCss: true,
   },
 };
 
