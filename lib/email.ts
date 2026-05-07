@@ -181,7 +181,7 @@ export async function sendPasswordResetEmail(to: string, token: string) {
   const html = shell({
     title: "Reset your password",
     preheader: `Reset your ${BRAND} password`,
-    intro: "You requested a password reset. Tap the button below to set a new password. This link expires in 1 hour.",
+    intro: "You requested a password reset. Tap the button below to set a new password. This link expires in 30 minutes.",
     bodyHtml: `<p style="margin:0;color:#6b7280;font-size:13px;">If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
     ctaLabel: "Reset password",
     ctaHref: resetUrl,

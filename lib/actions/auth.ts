@@ -332,8 +332,12 @@ export async function forgotPassword(email: string): Promise<ApiResponse> {
       return { success: true, message: "If an account exists, a reset link has been sent." };
     }
 
+    // Password-reset tokens expire fast (30 min) — short window limits the
+    // damage if an email is intercepted or forwarded. Email-verification
+    // tokens still use 1h because they're lower-stakes (they confirm an
+    // address, not authorise a password change).
     const token = crypto.randomUUID();
-    const expires = new Date(Date.now() + 60 * 60 * 1000);
+    const expires = new Date(Date.now() + 30 * 60 * 1000);
 
     await db.from("verification_tokens").insert({
       identifier: email,
@@ -354,6 +358,33 @@ export async function forgotPassword(email: string): Promise<ApiResponse> {
 
     console.error(err);
     return { success: false, error: "Something went wrong" };
+  }
+}
+
+// Read-only check used by the /forgot-password page to gate the
+// set-new-password UI. We don't mutate the token here — `resetPassword`
+// is what deletes it on successful use. A miss / expiry surface as a
+// dedicated error screen instead of letting the user fill in a doomed
+// form.
+export async function getResetTokenStatus(
+  token: string,
+): Promise<"valid" | "expired" | "invalid"> {
+  if (!token || typeof token !== "string") return "invalid";
+  try {
+    const db = getServerClient();
+    const { data, error } = await db
+      .from("verification_tokens")
+      .select("expires")
+      .eq("token", token)
+      .single();
+    if (error || !data) return "invalid";
+    const row = data as Record<string, unknown>;
+    const expires = row.expires ? new Date(String(row.expires)) : null;
+    if (!expires || expires.getTime() <= Date.now()) return "expired";
+    return "valid";
+  } catch (err) {
+    console.error("[getResetTokenStatus] lookup failed", err);
+    return "invalid";
   }
 }
 
@@ -390,13 +421,21 @@ export async function resetPassword(
     }
 
     const passwordHash = await hash(newPassword, 12);
+    const identifier = record.identifier as string;
 
     await db
       .from("users")
       .update({ password_hash: passwordHash } as never)
-      .eq("email", record.identifier as string);
+      .eq("email", identifier);
 
-    await db.from("verification_tokens").delete().eq("token", token);
+    // Invalidate ALL outstanding tokens for this email — not just the
+    // one we used. This closes a window where a second reset email
+    // (e.g. the user requested two in a row, or an attacker triggered
+    // their own request) would still be valid after the legitimate
+    // owner just rotated their password. Side effect: any pending
+    // email-verification token is also cleared; the user can re-request
+    // one from /profile if needed.
+    await db.from("verification_tokens").delete().eq("identifier", identifier);
 
     return { success: true, message: "Password reset successfully!" };
   } catch (err) {
