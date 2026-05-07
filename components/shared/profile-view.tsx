@@ -57,7 +57,12 @@ export function ProfileView({ sessionUser, profileData }: Props) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isChangingPw, setIsChangingPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState(sessionUser.image || "");
+  // Prefer the live `users.image` from the server-fetched profile data —
+  // that's the source of truth after an avatar upload. The JWT
+  // (`sessionUser.image`) lags by up to 24h until the session refreshes.
+  const initialAvatar =
+    (profileData?.user?.image as string | undefined) || sessionUser.image || "";
+  const [avatarUrl, setAvatarUrl] = useState(initialAvatar);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [sendingVerify, setSendingVerify] = useState(false);
   const { data: quota } = useMyQuotaUsage();
@@ -113,8 +118,19 @@ export function ProfileView({ sessionUser, profileData }: Props) {
       const data = await res.json();
       if (data.url) {
         setAvatarUrl(data.url);
-        await updateProfile({ avatar_url: data.url });
-        toast.success("Avatar updated");
+        const result = await updateProfile({ avatar_url: data.url });
+        if (result.success) {
+          toast.success("Avatar updated");
+          // Refresh the server-rendered profile so a hard reload immediately
+          // reads the new `users.image`. (Sidebar / header avatar, which
+          // pulls from the JWT cache, will catch up on the next login or
+          // session refresh — separate concern.)
+          router.refresh();
+        } else {
+          toast.error(result.error || "Couldn't save avatar");
+        }
+      } else {
+        toast.error("Upload failed");
       }
     } catch {
       toast.error("Failed to upload avatar");

@@ -78,17 +78,24 @@ export async function updateProfile(formData: {
     const validated = profileUpdateSchema.parse(formData);
     const db = getServerClient();
 
-    if (validated.name !== undefined) {
+    // `users.image` and `users.name` live on the auth row — `profiles` only
+    // holds app-specific data (role, status, points, phone, etc). The
+    // avatar field is `users.image`; there is no `profiles.avatar_url`
+    // column. Writing the wrong column is what made the avatar update
+    // appear to succeed and then disappear on reload.
+    const userUpdate: Record<string, unknown> = {};
+    if (validated.name !== undefined) userUpdate.name = validated.name;
+    if (formData.avatar_url) userUpdate.image = formData.avatar_url;
+    if (Object.keys(userUpdate).length > 0) {
       await db
         .from("users")
-        .update({ name: validated.name } as never)
+        .update(userUpdate as never)
         .eq("id", session.user.id);
     }
 
     const profileUpdate: Record<string, unknown> = {};
     if (validated.phone !== undefined) profileUpdate.phone = validated.phone;
     if (validated.social_links) profileUpdate.social_links = validated.social_links;
-    if (formData.avatar_url) profileUpdate.avatar_url = formData.avatar_url;
 
     if (Object.keys(profileUpdate).length > 0) {
       await db
