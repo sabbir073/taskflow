@@ -80,10 +80,10 @@ export default function Contact() {
                 <div>
                   <div className="text-sm font-semibold text-ink-900">Email</div>
                   <a
-                    href="mailto:hello@taskflow.io"
+                    href="mailto:hello@taskmos.com"
                     className="text-sm text-ink-600 hover:text-brand-700"
                   >
-                    hello@taskflow.io
+                    hello@taskmos.com
                   </a>
                 </div>
               </li>

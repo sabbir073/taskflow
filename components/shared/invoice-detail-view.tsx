@@ -44,7 +44,7 @@ export function InvoiceDetailView({ paymentId }: { paymentId: number }) {
       ? `${String(plan.name || "")} plan subscription${plan.period ? ` (${String(plan.period)})` : ""}`
       : "Payment";
 
-  const siteName = (settings.site_name as string) || "TaskFlow";
+  const siteName = (settings.site_name as string) || "TaskMOS";
 
   function handlePrint() { window.print(); }
 

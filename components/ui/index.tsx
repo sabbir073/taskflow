@@ -1,5 +1,5 @@
 /**
- * Custom styled UI primitives for TaskFlow.
+ * Custom styled UI primitives for TaskMOS.
  * These replace HeroUI's unstyled components with consistent, modern styling.
  */
 

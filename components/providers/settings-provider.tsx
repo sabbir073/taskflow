@@ -16,7 +16,7 @@ interface AppSettings {
 }
 
 const defaultSettings: AppSettings = {
-  site_name: "TaskFlow",
+  site_name: "TaskMOS",
   site_description: "Social Media Task Exchange Platform",
   primary_color: "#7C3AED",
   accent_color: "#EC4899",

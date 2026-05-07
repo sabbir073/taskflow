@@ -79,8 +79,8 @@ export default function LegalLayout({
             </div>
             <p className="mt-5 text-xs text-ink-500">
               Questions? Reach us at{" "}
-              <a href="mailto:hello@taskflow.io" className="font-medium text-brand-700 underline">
-                hello@taskflow.io
+              <a href="mailto:hello@taskmos.com" className="font-medium text-brand-700 underline">
+                hello@taskmos.com
               </a>{" "}
               or via the{" "}
               <Link href="/#contact" className="font-medium text-brand-700 underline">

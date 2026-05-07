@@ -4,7 +4,7 @@ function siteUrl(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.AUTH_URL ||
-    "https://taskflow.app"
+    "https://taskmos.com"
   ).replace(/\/+$/, "");
 }
 

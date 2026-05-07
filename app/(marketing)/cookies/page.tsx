@@ -5,7 +5,7 @@ import LegalLayout from "@/components/landing/LegalLayout";
 export const metadata: Metadata = {
   title: "Cookie Policy",
   description:
-    "What cookies TaskFlow uses, why we use them, and how you can control them in your browser.",
+    "What cookies TaskMOS uses, why we use them, and how you can control them in your browser.",
 };
 
 export default function CookiesPage() {
@@ -28,7 +28,7 @@ export default function CookiesPage() {
         browser rather than sending it back to a server.
       </p>
 
-      <h2>2. The cookies TaskFlow uses</h2>
+      <h2>2. The cookies TaskMOS uses</h2>
       <h3>Essential cookies</h3>
       <p>These are required for the Service to work. Disabling them will break core features.</p>
       <ul>
@@ -120,7 +120,7 @@ export default function CookiesPage() {
       <h2>8. Contact</h2>
       <p>
         Questions about cookies or tracking? Email{" "}
-        <a href="mailto:hello@taskflow.io">hello@taskflow.io</a> or reach out via the{" "}
+        <a href="mailto:hello@taskmos.com">hello@taskmos.com</a> or reach out via the{" "}
         <Link href="/#contact">contact form</Link>.
       </p>
     </LegalLayout>

@@ -51,7 +51,7 @@ async function seed() {
   await client.query("UPDATE profiles SET role = 'group_leader' WHERE user_id = $1", [userIds[0]]);
 
   // ===== GET ADMIN USER ID =====
-  const adminResult = await client.query("SELECT id FROM users WHERE email = 'admin@taskflow.com'");
+  const adminResult = await client.query("SELECT id FROM users WHERE email = 'admin@taskmos.com'");
   const adminId = adminResult.rows[0]?.id;
   if (!adminId) { console.error("Admin user not found!"); process.exit(1); }
 
@@ -99,17 +99,17 @@ async function seed() {
     },
     {
       title: "Follow our Twitter/X account",
-      desc: "Follow @TaskFlowHQ on Twitter/X and stay updated with our latest news.",
+      desc: "Follow @TaskMOSHQ on Twitter/X and stay updated with our latest news.",
       platform_id: 3, task_type_id: 14, // Twitter - Follow Account
-      task_data: { profile_url: "https://twitter.com/TaskFlowHQ" },
+      task_data: { profile_url: "https://twitter.com/TaskMOSHQ" },
       budget: 200, per_completion: 10, target: "all_users",
       created_by: adminId, approval: "approved", status: "pending",
     },
     {
       title: "Subscribe to our YouTube channel",
-      desc: "Subscribe to TaskFlow on YouTube for tutorials and updates.",
+      desc: "Subscribe to TaskMOS on YouTube for tutorials and updates.",
       platform_id: 5, task_type_id: 23, // YouTube - Subscribe
-      task_data: { channel_url: "https://youtube.com/@TaskFlow" },
+      task_data: { channel_url: "https://youtube.com/@TaskMOS" },
       budget: 150, per_completion: 10, target: "group", target_group: groupIds[0],
       created_by: adminId, approval: "approved", status: "pending",
     },
@@ -123,7 +123,7 @@ async function seed() {
     },
     {
       title: "Join our Discord server",
-      desc: "Join the official TaskFlow Discord server and introduce yourself in #general.",
+      desc: "Join the official TaskMOS Discord server and introduce yourself in #general.",
       platform_id: 9, task_type_id: 37, // Discord - Join Server
       task_data: { invite_url: "https://discord.gg/taskflow" },
       budget: 200, per_completion: 15, target: "all_users",

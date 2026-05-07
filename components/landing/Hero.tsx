@@ -41,7 +41,7 @@ export default function Hero() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-ink-500 sm:text-xl">
-            TaskFlow connects creators worldwide to exchange real engagement.
+            TaskMOS connects creators worldwide to exchange real engagement.
             Earn points by liking, sharing and following other creators — then
             spend those points to get{" "}
             <span className="font-semibold text-ink-800">

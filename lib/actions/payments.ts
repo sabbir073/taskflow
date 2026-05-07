@@ -766,7 +766,7 @@ export async function reviewPayment(
             transactionId: String(p.transaction_id || "—"),
             notes: p.notes ? String(p.notes) : null,
             reviewNotes: notes || null,
-            siteName: "TaskFlow",
+            siteName: "TaskMOS",
           });
         } catch (err) {
           console.error("[Email] Failed generating invoice PDF:", (err as Error).message);

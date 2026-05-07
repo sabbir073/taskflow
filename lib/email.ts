@@ -12,9 +12,9 @@ const host = (process.env.SMTP_HOST || "").trim();
 const port = Number(process.env.SMTP_PORT) || 465;
 const user = (process.env.SMTP_USER || "").trim();
 const pass = (process.env.SMTP_PASS || "").trim();
-const fromEmail = process.env.SMTP_FROM || user || "noreply@taskflow.com";
+const fromEmail = process.env.SMTP_FROM || user || "noreply@taskmos.com";
 const appUrl = process.env.AUTH_URL || "http://localhost:3000";
-const BRAND = "TaskFlow";
+const BRAND = "TaskMOS";
 
 const emailEnabled = !!(host && user && pass);
 
@@ -113,7 +113,7 @@ function shell(opts: ShellOpts): string {
         <tr>
           <td style="background:linear-gradient(135deg,#7C3AED 0%,#C026D3 100%);padding:28px 32px;color:#ffffff;">
             <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px;">${BRAND}</div>
-            <div style="font-size:12px;opacity:0.85;margin-top:3px;">Social Media Task Exchange</div>
+            <div style="font-size:12px;opacity:0.85;margin-top:3px;">Task Marketing Operating System</div>
           </td>
         </tr>
         <tr>

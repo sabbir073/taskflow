@@ -12,13 +12,13 @@ export default function RefundPage() {
   return (
     <LegalLayout
       title="Refund Policy"
-      tagline="Straightforward rules — if TaskFlow doesn't work for you, we'll give your money back within the window."
+      tagline="Straightforward rules — if TaskMOS doesn't work for you, we'll give your money back within the window."
       lastUpdated="April 22, 2026"
       currentHref="/refund"
     >
       <h2>1. 14-day money-back guarantee</h2>
       <p>
-        Every paid subscription on TaskFlow is covered by a <strong>14-day money-back guarantee</strong>.
+        Every paid subscription on TaskMOS is covered by a <strong>14-day money-back guarantee</strong>.
         If you&apos;re not satisfied for any reason, contact us within 14 days of the payment approval
         date and we&apos;ll refund 100% of what you paid.
       </p>
@@ -29,7 +29,7 @@ export default function RefundPage() {
         <li>The request is made within <strong>14 days</strong> of the payment being approved.</li>
         <li>You haven&apos;t consumed more than <strong>25%</strong> of your plan&apos;s included credits.</li>
         <li>Your account is in good standing — not suspended, banned, or flagged for abuse.</li>
-        <li>The payment was made directly through TaskFlow (not via a third-party reseller).</li>
+        <li>The payment was made directly through TaskMOS (not via a third-party reseller).</li>
       </ul>
       <p>
         Partial refunds may be considered on a case-by-case basis outside the 14-day window if there is
@@ -49,8 +49,8 @@ export default function RefundPage() {
       <ol>
         <li>
           Email us at{" "}
-          <a href="mailto:hello@taskflow.io">hello@taskflow.io</a> from the email address on your
-          TaskFlow account, or submit the <Link href="/#contact">contact form</Link>.
+          <a href="mailto:hello@taskmos.com">hello@taskmos.com</a> from the email address on your
+          TaskMOS account, or submit the <Link href="/#contact">contact form</Link>.
         </li>
         <li>Include your invoice number (format <strong>INV-YYYY-######</strong>) and the reason for the refund.</li>
         <li>An administrator will review within 2 business days. We may ask for a short confirmation.</li>
@@ -69,7 +69,7 @@ export default function RefundPage() {
         <li>Your subscription is immediately cancelled and the plan-included credits are reversed.</li>
         <li>Points earned through tasks during that period are <strong>not</strong> deducted.</li>
         <li>Any promotional tasks still active on your account will be stopped; unused budget is returned to your wallet.</li>
-        <li>You can continue using TaskFlow on the free Basic plan.</li>
+        <li>You can continue using TaskMOS on the free Basic plan.</li>
       </ul>
 
       <h2>7. Subscription cancellations (no refund)</h2>
@@ -96,7 +96,7 @@ export default function RefundPage() {
       <h2>10. Contact</h2>
       <p>
         Questions about a refund? Email{" "}
-        <a href="mailto:hello@taskflow.io">hello@taskflow.io</a> — we typically respond within 2 hours
+        <a href="mailto:hello@taskmos.com">hello@taskmos.com</a> — we typically respond within 2 hours
         during business hours (Mon&ndash;Sat, 9 AM&ndash;9 PM).
       </p>
     </LegalLayout>

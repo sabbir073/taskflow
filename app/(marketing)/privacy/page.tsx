@@ -5,21 +5,21 @@ import LegalLayout from "@/components/landing/LegalLayout";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How TaskFlow collects, uses, shares, and protects your personal data. Your rights, cookies, data retention, and how to contact us.",
+    "How TaskMOS collects, uses, shares, and protects your personal data. Your rights, cookies, data retention, and how to contact us.",
 };
 
 export default function PrivacyPage() {
   return (
     <LegalLayout
       title="Privacy Policy"
-      tagline="We collect the minimum needed to run TaskFlow, never sell your data, and give you full control."
+      tagline="We collect the minimum needed to run TaskMOS, never sell your data, and give you full control."
       lastUpdated="April 22, 2026"
       currentHref="/privacy"
     >
       <h2>1. Who we are</h2>
       <p>
-        TaskFlow (<strong>&ldquo;we&rdquo;</strong>, <strong>&ldquo;us&rdquo;</strong>, <strong>&ldquo;our&rdquo;</strong>)
-        operates the TaskFlow platform. This Privacy Policy explains what personal data we collect, how
+        TaskMOS (<strong>&ldquo;we&rdquo;</strong>, <strong>&ldquo;us&rdquo;</strong>, <strong>&ldquo;our&rdquo;</strong>)
+        operates the TaskMOS platform. This Privacy Policy explains what personal data we collect, how
         we use it, and your rights over it. This policy applies to all visitors, registered users, and
         paying customers.
       </p>
@@ -71,7 +71,7 @@ export default function PrivacyPage() {
       <p>We only share your data with:</p>
       <ul>
         <li><strong>Other members</strong> — limited to your public profile (name, avatar) when you interact through tasks or groups.</li>
-        <li><strong>Service providers</strong> who help us run TaskFlow (hosting, database, email delivery, file storage). They&apos;re contractually bound to process data only on our instructions.</li>
+        <li><strong>Service providers</strong> who help us run TaskMOS (hosting, database, email delivery, file storage). They&apos;re contractually bound to process data only on our instructions.</li>
         <li><strong>Administrators</strong> within our organisation, strictly on a need-to-know basis.</li>
         <li><strong>Law enforcement or regulators</strong> when legally required or to protect our users from imminent harm.</li>
       </ul>
@@ -96,7 +96,7 @@ export default function PrivacyPage() {
       </ul>
       <p>
         To exercise any of these rights, email{" "}
-        <a href="mailto:hello@taskflow.io">hello@taskflow.io</a>. We&apos;ll respond within 30 days.
+        <a href="mailto:hello@taskmos.com">hello@taskmos.com</a>. We&apos;ll respond within 30 days.
       </p>
 
       <h2>8. Security</h2>
@@ -116,7 +116,7 @@ export default function PrivacyPage() {
 
       <h2>9. Children</h2>
       <p>
-        TaskFlow is not intended for children under 13. We do not knowingly collect data from children
+        TaskMOS is not intended for children under 13. We do not knowingly collect data from children
         under 13. If you believe a child has provided us with personal data, please contact us so we
         can delete it.
       </p>
@@ -130,7 +130,7 @@ export default function PrivacyPage() {
 
       <h2>11. Third-party links</h2>
       <p>
-        TaskFlow contains links to third-party websites (for example, the social platforms you engage
+        TaskMOS contains links to third-party websites (for example, the social platforms you engage
         with during tasks). We are not responsible for the privacy practices of those sites — please
         review their privacy policies separately.
       </p>
@@ -145,7 +145,7 @@ export default function PrivacyPage() {
       <h2>13. Contact</h2>
       <p>
         For any privacy questions or to exercise your rights, reach out to{" "}
-        <a href="mailto:hello@taskflow.io">hello@taskflow.io</a> or use the{" "}
+        <a href="mailto:hello@taskmos.com">hello@taskmos.com</a> or use the{" "}
         <Link href="/#contact">contact form</Link>.
       </p>
     </LegalLayout>

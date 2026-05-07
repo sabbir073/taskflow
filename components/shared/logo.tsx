@@ -14,7 +14,7 @@ interface Props {
   onClick?: React.MouseEventHandler<HTMLAnchorElement>;
   /** Hide focus/hover cursor for display-only uses. */
   display?: boolean;
-  /** Brand name to display. Defaults to "TaskFlow"; renders with a pretty
+  /** Brand name to display. Defaults to "TaskMOS"; renders with a pretty
       Task / gradient-Flow split. Anything else gets the gradient applied
       to the whole name (respects the admin-editable site_name setting). */
   name?: string;
@@ -27,7 +27,7 @@ const SIZES = {
   lg: { box: "h-12 w-12", icon: "h-6 w-6", text: "text-2xl" },
 };
 
-// Shared TaskFlow logo. Used across landing, auth pages, dashboard sidebar,
+// Shared TaskMOS logo. Used across landing, auth pages, dashboard sidebar,
 // mobile nav. Wordmark uses `text-foreground` so it adapts to dark mode;
 // "Flow" picks up the brand gradient.
 export function Logo({
@@ -36,11 +36,11 @@ export function Logo({
   size = "md",
   onClick,
   display,
-  name = "TaskFlow",
+  name = "TaskMOS",
   className = "",
 }: Props) {
   const s = SIZES[size];
-  const isTaskFlow = name === "TaskFlow";
+  const isTaskMOS = name === "TaskMOS";
   const body = (
     <>
       <span
@@ -50,9 +50,9 @@ export function Logo({
       </span>
       {!compact && (
         <span className={`${s.text} font-extrabold tracking-tight text-foreground`}>
-          {isTaskFlow ? (
+          {isTaskMOS ? (
             <>
-              Task<span className="gradient-text">Flow</span>
+              Task<span className="gradient-text">MOS</span>
             </>
           ) : (
             <span className="gradient-text">{name}</span>

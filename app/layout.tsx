@@ -15,7 +15,7 @@ const inter = Inter({
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   process.env.AUTH_URL ||
-  "https://taskflow.app";
+  "https://taskmos.com";
 
 // Note: preconnect hints for CloudFront + Supabase moved to the
 // (dashboard) layout — those hosts only matter for authenticated views
@@ -25,34 +25,34 @@ const SITE_URL =
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "TaskFlow — Grow Your Social Media 100% Organically",
-    template: "%s | TaskFlow",
+    default: "TaskMOS — Grow Your Social Media 100% Organically",
+    template: "%s | TaskMOS",
   },
   description:
-    "TaskFlow is the world's smartest organic social media growth and content exchange platform. Earn points by engaging with real creators, then spend points to make your own content go viral — no ads, no bots, just real humans.",
+    "TaskMOS is the world's smartest organic social media growth and content exchange platform. Earn points by engaging with real creators, then spend points to make your own content go viral — no ads, no bots, just real humans.",
   keywords: [
     "organic social media growth",
     "content exchange platform",
     "social media promotion",
     "get real followers",
     "viral marketing",
-    "TaskFlow",
+    "TaskMOS",
   ],
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "TaskFlow — Grow Your Social Media 100% Organically",
+    title: "TaskMOS — Grow Your Social Media 100% Organically",
     description:
       "Exchange real engagement with real creators. Earn points, promote your content, and watch your posts go viral — organically.",
     type: "website",
-    siteName: "TaskFlow",
+    siteName: "TaskMOS",
     url: "/",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TaskFlow — Grow Your Social Media 100% Organically",
+    title: "TaskMOS — Grow Your Social Media 100% Organically",
     description:
       "Exchange real engagement with real creators. Earn points, promote your content, and watch your posts go viral — organically.",
   },
@@ -76,11 +76,11 @@ function organizationJsonLd(): string {
   const data = {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "TaskFlow",
+    name: "TaskMOS",
     url: SITE_URL,
     logo: `${SITE_URL}/icon`,
     description:
-      "TaskFlow is the world's smartest organic social media growth and content exchange platform.",
+      "TaskMOS is the world's smartest organic social media growth and content exchange platform.",
   };
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }

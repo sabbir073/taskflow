@@ -6,7 +6,7 @@ import { ImageResponse } from "next/og";
 //
 // The same image serves Twitter via app/twitter-image.tsx which
 // re-exports this default.
-export const alt = "TaskFlow — Grow Your Social Media 100% Organically";
+export const alt = "TaskMOS — Grow Your Social Media 100% Organically";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -64,7 +64,7 @@ export default function OpengraphImage() {
             marginBottom: 24,
           }}
         >
-          TaskFlow
+          TaskMOS
         </div>
 
         {/* Tagline */}

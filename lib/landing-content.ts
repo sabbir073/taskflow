@@ -5,12 +5,12 @@
 
 export const faqs = [
   {
-    q: "Is TaskFlow safe for my social media account?",
+    q: "Is TaskMOS safe for my social media account?",
     a: "100%. We never ask for your passwords or use shady API tricks. You simply share public links to your posts — and real humans engage with them through their own accounts. Your account stays fully compliant with every platform's terms of service.",
   },
   {
     q: "Are the likes, shares and followers real?",
-    a: "Yes. Every engagement comes from a real human creator on TaskFlow who is logged into their own account. Zero bots, zero fake engagement. That's why our results stay permanent and actually boost the algorithm.",
+    a: "Yes. Every engagement comes from a real human creator on TaskMOS who is logged into their own account. Zero bots, zero fake engagement. That's why our results stay permanent and actually boost the algorithm.",
   },
   {
     q: "How fast will I see results?",
@@ -34,6 +34,6 @@ export const faqs = [
   },
   {
     q: "Will my posts really go viral?",
-    a: "When real humans share your posts on their personal feeds, their friends and followers see your content — creating a ripple effect. Many of our creators have seen single posts reach 100K–1M+ organic views this way. Results depend on content quality, but TaskFlow gives you the initial push the algorithm needs.",
+    a: "When real humans share your posts on their personal feeds, their friends and followers see your content — creating a ripple effect. Many of our creators have seen single posts reach 100K–1M+ organic views this way. Results depend on content quality, but TaskMOS gives you the initial push the algorithm needs.",
   },
 ] as const;

@@ -11,7 +11,7 @@ const reviews = [
     avatar: "/landing/avatars/t1.jpg",
     rating: 5,
     quote:
-      "I stopped buying ads three months ago. With TaskFlow my videos started getting real shares from real viewers — watch time tripled, and the YouTube algorithm finally started recommending me.",
+      "I stopped buying ads three months ago. With TaskMOS my videos started getting real shares from real viewers — watch time tripled, and the YouTube algorithm finally started recommending me.",
   },
   {
     name: "Sadia Rahman",
@@ -19,7 +19,7 @@ const reviews = [
     avatar: "/landing/avatars/t2.jpg",
     rating: 5,
     quote:
-      "My Instagram reels were stuck at 500 views. After 2 weeks of TaskFlow campaigns, one reel hit 180K views organically. The shares from real users made it go viral.",
+      "My Instagram reels were stuck at 500 views. After 2 weeks of TaskMOS campaigns, one reel hit 180K views organically. The shares from real users made it go viral.",
   },
   {
     name: "Rakib Ahmed",
@@ -27,7 +27,7 @@ const reviews = [
     avatar: "/landing/avatars/t3.jpg",
     rating: 5,
     quote:
-      "We use TaskFlow to promote our product launches. Traffic to our store jumped 3x in the first month — and every click is from a real person, not a bot.",
+      "We use TaskMOS to promote our product launches. Traffic to our store jumped 3x in the first month — and every click is from a real person, not a bot.",
   },
   {
     name: "Nusrat Jahan",
@@ -43,7 +43,7 @@ const reviews = [
     avatar: "/landing/avatars/t5.jpg",
     rating: 5,
     quote:
-      "We manage 8 client accounts with the Business plan. TaskFlow replaced $2,000 of monthly ad spend for our clients — same results at a fraction of the cost.",
+      "We manage 8 client accounts with the Business plan. TaskMOS replaced $2,000 of monthly ad spend for our clients — same results at a fraction of the cost.",
   },
   {
     name: "Mehedi Hasan",

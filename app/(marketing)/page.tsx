@@ -21,7 +21,7 @@ const Contact = dynamic(() => import("@/components/landing/Contact"));
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   process.env.AUTH_URL ||
-  "https://taskflow.app";
+  "https://taskmos.com";
 
 // SoftwareApplication + FAQPage JSON-LD. SoftwareApplication can earn a
 // rich result with name, rating + offers; FAQPage seeds the
@@ -32,7 +32,7 @@ function homeJsonLd(): string {
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      name: "TaskFlow",
+      name: "TaskMOS",
       url: SITE_URL,
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",

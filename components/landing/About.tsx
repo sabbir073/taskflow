@@ -41,13 +41,13 @@ export default function About() {
             viewport={{ once: true, margin: "-60px" }}
             transition={{ duration: 0.5 }}
           >
-            <span className="section-label">About TaskFlow</span>
+            <span className="section-label">About TaskMOS</span>
             <h2 className="heading-lg mt-4">
               Built by creators.{" "}
               <span className="gradient-text">For creators.</span>
             </h2>
             <p className="mt-5 text-ink-600">
-              TaskFlow was founded in 2023 by a team of creators who were tired
+              TaskMOS was founded in 2023 by a team of creators who were tired
               of paying thousands for ads that delivered fake engagement — and
               getting nowhere with the algorithm.
             </p>
@@ -59,7 +59,7 @@ export default function About() {
             </p>
             <p className="mt-4 text-ink-600">
               Today, more than <strong className="text-ink-900">10,000 creators</strong>{" "}
-              around the world use TaskFlow to grow their audience, launch
+              around the world use TaskMOS to grow their audience, launch
               products, and turn ordinary posts into viral moments.
             </p>
 

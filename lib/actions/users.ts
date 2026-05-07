@@ -355,7 +355,7 @@ export async function deleteUser(userId: string): Promise<ApiResponse> {
     // Anonymize user data
     await db
       .from("users")
-      .update({ name: "Deleted User", email: `deleted_${userId}@taskflow.local`, image: null } as never)
+      .update({ name: "Deleted User", email: `deleted_${userId}@taskmos.local`, image: null } as never)
       .eq("id", userId);
 
     // Any group they led transfers to the next senior member (or is archived)

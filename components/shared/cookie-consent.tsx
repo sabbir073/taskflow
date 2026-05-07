@@ -55,7 +55,7 @@ export function CookieConsent() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold mb-1">We use cookies</p>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              TaskFlow uses essential cookies to keep you signed in. We don&apos;t use ad or tracking cookies.{" "}
+              TaskMOS uses essential cookies to keep you signed in. We don&apos;t use ad or tracking cookies.{" "}
               <Link href="/cookies" className="text-primary hover:underline font-medium">
                 Learn more about our cookie policy
               </Link>

@@ -122,7 +122,7 @@ export default function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-ink-200 pt-6 sm:flex-row">
           <p className="text-xs text-ink-500">
-            © {new Date().getFullYear()} TaskFlow. All rights reserved.
+            © {new Date().getFullYear()} TaskMOS. All rights reserved.
           </p>
           <p className="text-xs text-ink-500">
             Built with love for creators worldwide ✦

@@ -15,7 +15,7 @@ import {
 export const metadata: Metadata = {
   title: "System Status",
   description:
-    "Real-time status of TaskFlow services. Check uptime, recent incidents, and subscribe for updates.",
+    "Real-time status of TaskMOS services. Check uptime, recent incidents, and subscribe for updates.",
 };
 
 // Static components. When something actually breaks, flip `status` from

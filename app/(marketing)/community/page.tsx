@@ -17,7 +17,7 @@ import type { SVGProps } from "react";
 export const metadata: Metadata = {
   title: "Community",
   description:
-    "Join the TaskFlow community — where creators, marketers and small-business owners swap engagement and grow together.",
+    "Join the TaskMOS community — where creators, marketers and small-business owners swap engagement and grow together.",
 };
 
 // Lucide removed the brand glyphs; inline a few so the channel cards look
@@ -94,7 +94,7 @@ const guidelines = [
   {
     icon: Globe,
     title: "Stay on-platform",
-    desc: "Keep disputes inside TaskFlow or the official channels. Don't DM harass fellow creators.",
+    desc: "Keep disputes inside TaskMOS or the official channels. Don't DM harass fellow creators.",
   },
   {
     icon: Zap,
@@ -125,7 +125,7 @@ export default function CommunityPage() {
               Grow <span className="gradient-text">together</span>, not alone.
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-lg text-ink-500">
-              TaskFlow is more than software — it&apos;s a network of 12,000+ creators, marketers and business owners who exchange engagement every day.
+              TaskMOS is more than software — it&apos;s a network of 12,000+ creators, marketers and business owners who exchange engagement every day.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <a href="#channels" className="btn-primary">
@@ -236,7 +236,7 @@ export default function CommunityPage() {
               Got a growth story?
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-white/90">
-              We feature real results on our channels and socials every week. Tell us how TaskFlow helped you go viral.
+              We feature real results on our channels and socials every week. Tell us how TaskMOS helped you go viral.
             </p>
             <Link
               href="/#contact"

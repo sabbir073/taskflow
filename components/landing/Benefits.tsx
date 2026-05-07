@@ -22,7 +22,7 @@ const benefits = [
   {
     icon: Users,
     title: "100% Real Humans",
-    desc: "No bots, no fake engagement. Every action on TaskFlow comes from a verified creator, which protects your account and multiplies your organic reach.",
+    desc: "No bots, no fake engagement. Every action on TaskMOS comes from a verified creator, which protects your account and multiplies your organic reach.",
   },
   {
     icon: Globe2,
@@ -42,7 +42,7 @@ const benefits = [
   {
     icon: ShieldCheck,
     title: "Account-Safe Forever",
-    desc: "No password sharing. No shady API hacks. TaskFlow uses external sharing links, so your accounts always stay 100% safe and compliant.",
+    desc: "No password sharing. No shady API hacks. TaskMOS uses external sharing links, so your accounts always stay 100% safe and compliant.",
   },
   {
     icon: Gauge,
@@ -57,7 +57,7 @@ const benefits = [
   {
     icon: Sparkles,
     title: "Built For Every Creator",
-    desc: "Whether you're a solo influencer, small business, or agency — TaskFlow scales with you, from first follower to first million.",
+    desc: "Whether you're a solo influencer, small business, or agency — TaskMOS scales with you, from first follower to first million.",
   },
 ];
 
@@ -65,13 +65,13 @@ export default function Benefits() {
   return (
     <section id="benefits" className="section-box">
       <div className="mx-auto max-w-2xl text-center">
-        <span className="section-label">Why TaskFlow</span>
+        <span className="section-label">Why TaskMOS</span>
         <h2 className="heading-lg mt-4">
           The growth hack creators{" "}
           <span className="gradient-text">can&apos;t stop talking about</span>
         </h2>
         <p className="mt-4 text-ink-500">
-          Ads run out of budget. Bots get banned. TaskFlow is different — it&apos;s a
+          Ads run out of budget. Bots get banned. TaskMOS is different — it&apos;s a
           community of creators helping each other win, backed by real engagement
           that stays permanent on your profile.
         </p>
@@ -115,7 +115,7 @@ export default function Benefits() {
               Your post. Real humans. Viral reach.
             </h3>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/90 sm:text-base">
-              When you promote a post on TaskFlow, real creators share it on
+              When you promote a post on TaskMOS, real creators share it on
               their own Facebook, Instagram, Twitter, LinkedIn, and Telegram
               feeds — exposing you to millions of new people who genuinely
               discover your content organically.

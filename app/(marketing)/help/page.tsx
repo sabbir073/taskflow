@@ -15,7 +15,7 @@ import {
 export const metadata: Metadata = {
   title: "Help Center",
   description:
-    "Answers to the most common TaskFlow questions — getting started, earning points, running promotions, billing, account security and more.",
+    "Answers to the most common TaskMOS questions — getting started, earning points, running promotions, billing, account security and more.",
 };
 
 // ============================================================================
@@ -37,19 +37,19 @@ const categories: Category[] = [
     id: "getting-started",
     icon: BookOpen,
     title: "Getting Started",
-    blurb: "New to TaskFlow? Start here.",
+    blurb: "New to TaskMOS? Start here.",
     accent: "from-blue-500 to-cyan-400",
     items: [
       {
-        q: "What is TaskFlow?",
-        a: "TaskFlow is a social-media content-exchange platform. You earn points by engaging with real creators (liking, sharing, following) and spend those points to get real humans engaging with YOUR posts — no bots, no ads, just organic reach.",
+        q: "What is TaskMOS?",
+        a: "TaskMOS is a social-media content-exchange platform. You earn points by engaging with real creators (liking, sharing, following) and spend those points to get real humans engaging with YOUR posts — no bots, no ads, just organic reach.",
       },
       {
         q: "How do I create an account?",
         a: "Click Start Free in the top right, enter your name, email and a password. If the admin has enabled email verification you'll get an optional confirmation link — verify any time from your profile page.",
       },
       {
-        q: "Is TaskFlow free to use?",
+        q: "Is TaskMOS free to use?",
         a: "Yes. The Basic plan is free forever and includes 5 tasks and 3 groups per month. Paid tiers unlock more tasks, priority support and extra credits.",
       },
       {

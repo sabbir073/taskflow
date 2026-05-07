@@ -14,7 +14,7 @@ const CATEGORIES = [
   { key: "points", label: "Points" },
 ];
 
-// Unwrap JSONB values: "\"TaskFlow\"" -> "TaskFlow", true -> true
+// Unwrap JSONB values: "\"TaskMOS\"" -> "TaskMOS", true -> true
 function unwrapValue(val: unknown): unknown {
   if (typeof val === "string") {
     try {

@@ -40,7 +40,7 @@ export default function CTA() {
           </h2>
 
           <p className="mx-auto mt-5 max-w-2xl text-base text-white/90 sm:text-lg">
-            Join thousands of teams already using TaskFlow to amplify their
+            Join thousands of teams already using TaskMOS to amplify their
             social media presence — 100% organically, with zero ad spend.
           </p>
 

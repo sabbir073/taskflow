@@ -5,7 +5,7 @@ import LegalLayout from "@/components/landing/LegalLayout";
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
-    "The agreement that governs your use of TaskFlow — accounts, points, subscriptions, content, conduct, liability, termination.",
+    "The agreement that governs your use of TaskMOS — accounts, points, subscriptions, content, conduct, liability, termination.",
 };
 
 export default function TermsPage() {
@@ -19,12 +19,12 @@ export default function TermsPage() {
       <h2>1. Introduction</h2>
       <p>
         These Terms of Service (the <strong>&ldquo;Terms&rdquo;</strong>) govern your access to and use of
-        the TaskFlow platform, including our website, dashboard, and any related services (collectively, the
+        the TaskMOS platform, including our website, dashboard, and any related services (collectively, the
         <strong> &ldquo;Service&rdquo;</strong>). By creating an account or using the Service you
         agree to be bound by these Terms. If you do not agree, please do not use the Service.
       </p>
 
-      <h2>2. Who can use TaskFlow</h2>
+      <h2>2. Who can use TaskMOS</h2>
       <p>
         You must be at least 13 years old to use the Service. If you&apos;re under 18, you confirm that
         a parent or legal guardian has reviewed these Terms on your behalf. You must also comply with all
@@ -35,9 +35,9 @@ export default function TermsPage() {
         activity that happens under your account.
       </p>
 
-      <h2>3. What TaskFlow does</h2>
+      <h2>3. What TaskMOS does</h2>
       <p>
-        TaskFlow is a peer-to-peer engagement exchange platform. Members complete real, approved social
+        TaskMOS is a peer-to-peer engagement exchange platform. Members complete real, approved social
         media actions (such as likes, shares, follows and comments) on each other&apos;s content in
         return for in-app points. Points are an internal credit used to request similar engagement on
         your own content. They are not a currency, have no monetary value outside the platform, and
@@ -91,7 +91,7 @@ export default function TermsPage() {
       <h2>7. User content</h2>
       <p>
         You retain ownership of content you upload (proof screenshots, task descriptions, profile
-        information). By uploading, you grant TaskFlow a worldwide, non-exclusive, royalty-free license
+        information). By uploading, you grant TaskMOS a worldwide, non-exclusive, royalty-free license
         to store, display, and transmit that content as needed to operate the Service.
       </p>
       <p>
@@ -122,7 +122,7 @@ export default function TermsPage() {
 
       <h2>11. Changes to the Service</h2>
       <p>
-        We continually improve TaskFlow and may add, modify, or remove features at any time. When a
+        We continually improve TaskMOS and may add, modify, or remove features at any time. When a
         change is significant, we&apos;ll do our best to notify you in advance through in-app or email
         communication.
       </p>
@@ -131,13 +131,13 @@ export default function TermsPage() {
       <p>
         The Service is provided <strong>&ldquo;as is&rdquo;</strong> and <strong>&ldquo;as
         available&rdquo;</strong>. We make no warranty that the Service will meet your requirements,
-        be uninterrupted, timely, secure, or error-free. TaskFlow is not affiliated with, endorsed by,
+        be uninterrupted, timely, secure, or error-free. TaskMOS is not affiliated with, endorsed by,
         or sponsored by any of the third-party social media platforms members may engage with.
       </p>
 
       <h2>13. Limitation of liability</h2>
       <p>
-        To the fullest extent permitted by law, TaskFlow, its operators, and contributors shall not be
+        To the fullest extent permitted by law, TaskMOS, its operators, and contributors shall not be
         liable for any indirect, incidental, consequential, or punitive damages arising out of your use
         of the Service, including loss of engagement, followers, revenue, or content visibility on
         third-party platforms.
@@ -154,7 +154,7 @@ export default function TermsPage() {
       <h2>15. Contact</h2>
       <p>
         Questions about these Terms? Email us at{" "}
-        <a href="mailto:hello@taskflow.io">hello@taskflow.io</a> or use the{" "}
+        <a href="mailto:hello@taskmos.com">hello@taskmos.com</a> or use the{" "}
         <Link href="/#contact">contact form</Link>.
       </p>
     </LegalLayout>

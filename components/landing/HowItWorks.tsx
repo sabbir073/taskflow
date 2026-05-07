@@ -7,7 +7,7 @@ const steps = [
   {
     icon: UserPlus,
     title: "1. Sign up in 30 seconds",
-    desc: "Create your free TaskFlow account. No credit card needed. Get 500 starter points just for joining.",
+    desc: "Create your free TaskMOS account. No credit card needed. Get 500 starter points just for joining.",
   },
   {
     icon: CheckSquare,
@@ -35,7 +35,7 @@ export default function HowItWorks() {
           Grow in 4 simple steps — <span className="gradient-text">zero ad spend</span>
         </h2>
         <p className="mt-4 text-ink-500">
-          TaskFlow is a two-way exchange: you help real creators, they help you.
+          TaskMOS is a two-way exchange: you help real creators, they help you.
           No fake followers. No bots. Just genuine humans engaging with real
           content.
         </p>
