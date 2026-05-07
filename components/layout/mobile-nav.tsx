@@ -103,8 +103,13 @@ export function MobileNav({ user, isOpen, onClose }: MobileNavProps) {
         {/* User + Logout */}
         <div className="border-t border-border p-4 space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">
-              {getInitials(user.name || "U")}
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary overflow-hidden">
+              {user.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.image} alt="" className="w-full h-full rounded-lg object-cover" />
+              ) : (
+                getInitials(user.name || "U")
+              )}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{user.name}</p>

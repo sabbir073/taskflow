@@ -113,8 +113,13 @@ export function Sidebar({ user }: { user: SessionUser }) {
         </button>
 
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-            {getInitials(user.name || "U")}
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0 overflow-hidden">
+            {user.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={user.image} alt="" className="w-full h-full rounded-lg object-cover" />
+            ) : (
+              getInitials(user.name || "U")
+            )}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">

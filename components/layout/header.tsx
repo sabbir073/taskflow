@@ -104,8 +104,13 @@ export function Header({ user }: { user: SessionUser }) {
               onClick={() => setMenuOpen(!menuOpen)}
               className="flex items-center gap-2 p-1.5 pr-3 rounded-xl hover:bg-muted transition-colors"
             >
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xs font-bold">
-                {getInitials(user.name || "U")}
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xs font-bold overflow-hidden">
+                {user.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={user.image} alt="" className="w-full h-full rounded-lg object-cover" />
+                ) : (
+                  getInitials(user.name || "U")
+                )}
               </div>
               <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`} />
             </button>
@@ -116,8 +121,13 @@ export function Header({ user }: { user: SessionUser }) {
                 {/* User info header */}
                 <div className="px-4 py-3 bg-muted/40 border-b border-border/50">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold">
-                      {getInitials(user.name || "U")}
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold overflow-hidden">
+                      {user.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={user.image} alt="" className="w-full h-full rounded-xl object-cover" />
+                      ) : (
+                        getInitials(user.name || "U")
+                      )}
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{user.name}</p>
