@@ -69,9 +69,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error: "/login",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session: updatedSession }) {
+      // Initial sign-in: carry the auth row's name/email/image plus the
+      // profile's role/status/is_approved into the JWT. We can't rely on
+      // NextAuth v5's auto-copy here because we don't return the full
+      // shape from authorize() — be explicit about every field that
+      // downstream code reads off `session.user`.
       if (user) {
         token.id = user.id!;
+        if (user.name !== undefined) token.name = user.name;
+        if (user.email !== undefined) token.email = user.email;
+        if (user.image !== undefined) token.picture = user.image as string | null;
+
         const supabase = getServerClient();
         const { data: profile } = await supabase
           .from("profiles")
@@ -84,6 +93,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.status = (profileData?.status as string) || "active";
         token.is_approved = profileData?.is_approved !== false; // default true if missing
       }
+
+      // Client-side `useSession().update({ name, image })` path. Lets the
+      // profile page push fresh values into the JWT immediately after an
+      // avatar upload or name change, without forcing a re-login.
+      if (trigger === "update" && updatedSession && typeof updatedSession === "object") {
+        const incoming = updatedSession as Record<string, unknown>;
+        if (typeof incoming.name === "string") token.name = incoming.name;
+        if (typeof incoming.image === "string" || incoming.image === null) {
+          token.picture = incoming.image as string | null;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -92,6 +113,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.role = token.role as string;
         session.user.status = token.status as string;
         session.user.is_approved = token.is_approved as boolean;
+        // NextAuth populates `name`, `email` from `token.name`/`token.email`
+        // by default, but `image` only flows when we explicitly forward
+        // it from `token.picture`.
+        session.user.image = (token.picture as string | null | undefined) ?? null;
       }
       return session;
     },

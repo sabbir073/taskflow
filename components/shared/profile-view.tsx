@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -68,6 +69,7 @@ export function ProfileView({ sessionUser, profileData }: Props) {
   const { data: quota } = useMyQuotaUsage();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { update: updateSession } = useSession();
   const verifyToastFired = useRef(false);
 
   // Show a toast once when the user returns from the verify-email link.
@@ -121,10 +123,14 @@ export function ProfileView({ sessionUser, profileData }: Props) {
         const result = await updateProfile({ avatar_url: data.url });
         if (result.success) {
           toast.success("Avatar updated");
-          // Refresh the server-rendered profile so a hard reload immediately
-          // reads the new `users.image`. (Sidebar / header avatar, which
-          // pulls from the JWT cache, will catch up on the next login or
-          // session refresh — separate concern.)
+          // Two refreshes for two cache layers:
+          //   1) router.refresh() — re-renders the server components
+          //      (profile page reads the live `users.image`).
+          //   2) updateSession() — pushes the new image into the JWT
+          //      via the `update` trigger in auth.ts. This is what makes
+          //      the sidebar/header/mobile-nav avatar pick up the change
+          //      WITHOUT requiring sign-out + sign-in.
+          await updateSession({ image: data.url });
           router.refresh();
         } else {
           toast.error(result.error || "Couldn't save avatar");
