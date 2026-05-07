@@ -16,6 +16,12 @@ const fromEmail = process.env.SMTP_FROM || user || "noreply@taskmos.com";
 const appUrl = process.env.AUTH_URL || "http://localhost:3000";
 const BRAND = "TaskMOS";
 
+// Compose the From header with a display name so inboxes (Gmail, Apple Mail,
+// Outlook) show "TaskMOS" as the sender — not the local-part of the email
+// (e.g. "hello"). Format: `Display Name <addr@domain>`. Strip any quotes
+// already in BRAND so we don't double-wrap.
+const fromHeader = `"${BRAND.replace(/"/g, "")}" <${fromEmail}>`;
+
 const emailEnabled = !!(host && user && pass);
 
 // Build the transporter lazily and only when SMTP is actually configured, so
@@ -58,7 +64,7 @@ async function send(
   if (!t) return false; // silent no-op — SMTP not configured
   try {
     await t.sendMail({
-      from: fromEmail,
+      from: fromHeader,
       to: Array.isArray(to) ? to.join(", ") : to,
       subject,
       html,
