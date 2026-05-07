@@ -70,6 +70,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
           const vs = data.stats as Record<string, unknown> | null;
           const vName = String(vu?.name || "Unknown");
           const vEmail = String(vu?.email || "");
+          const vImage = (vu?.image as string | null | undefined) || null;
           const vEmailVerified = !!vu?.email_verified;
           const vRole = String(vp?.role || "user") as UserRole;
           const vStatus = String(vp?.status || "active") as UserStatus;
@@ -91,8 +92,13 @@ export function UserProfileModal({ userId, onClose }: Props) {
                   <X className="w-4 h-4" />
                 </button>
                 <div className="absolute -bottom-8 left-6">
-                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xl font-bold border-4 border-card shadow-lg">
-                    {getInitials(vName)}
+                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xl font-bold border-4 border-card shadow-lg overflow-hidden">
+                    {vImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={vImage} alt="" className="w-full h-full rounded-[8px] object-cover" />
+                    ) : (
+                      getInitials(vName)
+                    )}
                   </div>
                 </div>
               </div>

@@ -141,6 +141,7 @@ export function UsersTable() {
                   const userId = (u?.id || row.user_id) as string;
                   const name = String(u?.name || "Unknown");
                   const email = String(u?.email || "");
+                  const image = (u?.image as string | null | undefined) || null;
                   const emailVerified = !!u?.email_verified;
                   const role = row.role as UserRole;
                   const status = row.status as UserStatus;
@@ -153,7 +154,14 @@ export function UsersTable() {
                     <tr key={userId} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
                       <td className="px-5 py-3">
                         <button onClick={() => openProfile(userId)} className="flex items-center gap-3 text-left hover:opacity-80 transition-opacity">
-                          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
+                          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary overflow-hidden shrink-0">
+                            {image ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={image} alt="" className="w-full h-full rounded-lg object-cover" />
+                            ) : (
+                              getInitials(name)
+                            )}
+                          </div>
                           <div>
                             <p className="font-medium hover:text-primary transition-colors flex items-center gap-1.5">
                               {name}
@@ -379,6 +387,7 @@ export function UsersTable() {
               const vs = viewProfile.stats as Record<string, unknown> | null;
               const vName = String(vu?.name || "Unknown");
               const vEmail = String(vu?.email || "");
+              const vImage = (vu?.image as string | null | undefined) || null;
               const vRole = String(vp?.role || "user") as UserRole;
               const vStatus = String(vp?.status || "active") as UserStatus;
               const vPoints = Number(vp?.total_points || 0);
@@ -397,8 +406,13 @@ export function UsersTable() {
                       <X className="w-4 h-4" />
                     </button>
                     <div className="absolute -bottom-8 left-5 sm:left-6">
-                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xl font-bold border-4 border-card shadow-lg">
-                        {getInitials(vName)}
+                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xl font-bold border-4 border-card shadow-lg overflow-hidden">
+                        {vImage ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={vImage} alt="" className="w-full h-full rounded-[8px] object-cover" />
+                        ) : (
+                          getInitials(vName)
+                        )}
                       </div>
                     </div>
                   </div>
