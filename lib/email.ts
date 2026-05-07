@@ -365,41 +365,220 @@ export async function sendAdminNewPaymentAlert(
 }
 
 // ============================================================================
-// LEGACY / KEPT FOR COMPAT
+// ACCOUNT STATUS CHANGES
 // ============================================================================
+// User-facing alerts for status flips driven by admins. The user usually
+// CAN'T log in to see the in-app notification (suspended/banned both block
+// dashboard access), so an out-of-band signal matters here more than for
+// most other admin actions.
 
-export async function sendTaskNotificationEmail(
-  to: string,
-  taskTitle: string,
-  status: "assigned" | "approved" | "rejected",
-  reason?: string
-) {
-  const titleMap = {
-    assigned: `New task assigned: ${taskTitle}`,
-    approved: `Task approved: ${taskTitle}`,
-    rejected: `Task needs revision: ${taskTitle}`,
-  };
-  const bodyMap = {
-    assigned: `You've been assigned a new task: <strong>${taskTitle}</strong>.`,
-    approved: `Your submission for <strong>${taskTitle}</strong> has been approved. Points have been credited to your wallet.`,
-    rejected: `Your submission for <strong>${taskTitle}</strong> needs revision.${reason ? ` Reason: ${reason}` : ""}`,
-  };
-  const html = shell({
-    title: titleMap[status],
-    bodyHtml: `<p style="margin:0;">${bodyMap[status]}</p>`,
-    ctaLabel: "View tasks",
-    ctaHref: `${appUrl}/tasks`,
-  });
-  return send(to, titleMap[status], html);
+function reasonBlock(reason?: string): string {
+  if (!reason) return "";
+  return `<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:12px 14px;margin:8px 0 14px;color:#991B1B;font-size:13px;"><strong>Reason:</strong> ${reason}</div>`;
 }
 
-export async function sendGroupInviteEmail(to: string, groupName: string, inviterName: string) {
+export async function sendAccountSuspendedEmail(to: string, userName: string, reason?: string) {
   const html = shell({
-    title: `You've been invited to ${groupName}`,
-    intro: `<strong>${inviterName}</strong> has invited you to join <strong>${groupName}</strong> on ${BRAND}.`,
+    title: "Your account has been suspended",
+    preheader: `Your ${BRAND} account is temporarily suspended`,
+    intro: `Hi ${userName}, an admin has suspended your ${BRAND} account. While suspended you cannot create tasks, submit proofs, or use most features.`,
+    bodyHtml: `${reasonBlock(reason)}<p style="margin:0;">If you believe this is a mistake, you can submit a suspension appeal from the suspended page after signing in.</p>`,
+    ctaLabel: "Sign in to appeal",
+    ctaHref: `${appUrl}/login`,
+  });
+  return send(to, `Your ${BRAND} account has been suspended`, html);
+}
+
+export async function sendAccountReactivatedEmail(to: string, userName: string) {
+  const html = shell({
+    title: "Welcome back — your account is active",
+    preheader: `Your ${BRAND} account has been reactivated`,
+    intro: `Hi ${userName}, your ${BRAND} account has been reactivated. You can now sign in and resume using all features.`,
     bodyHtml: "",
-    ctaLabel: "View groups",
+    ctaLabel: "Sign in",
+    ctaHref: `${appUrl}/login`,
+  });
+  return send(to, `Your ${BRAND} account has been reactivated`, html);
+}
+
+export async function sendAccountBannedEmail(to: string, userName: string, reason?: string) {
+  const html = shell({
+    title: "Your account has been banned",
+    preheader: `Your ${BRAND} account has been permanently banned`,
+    intro: `Hi ${userName}, your ${BRAND} account has been permanently banned by an admin. This action removes your access to the platform and anonymises your stored profile information.`,
+    bodyHtml: `${reasonBlock(reason)}<p style="margin:0;">If you believe this decision was made in error, please reply to this email with details and an admin will review it.</p>`,
+    footerNote: `This message was sent by ${BRAND}.`,
+  });
+  return send(to, `Your ${BRAND} account has been banned`, html);
+}
+
+export async function sendSignupRejectedEmail(to: string, userName: string, reason?: string) {
+  const html = shell({
+    title: "Your signup was not approved",
+    preheader: `Your ${BRAND} signup application was reviewed`,
+    intro: `Hi ${userName}, after reviewing your application, our team wasn't able to approve your ${BRAND} account at this time.`,
+    bodyHtml: `${reasonBlock(reason)}<p style="margin:0;">You're welcome to apply again later, or reply to this email if you have questions.</p>`,
+    footerNote: `This message was sent by ${BRAND}.`,
+  });
+  return send(to, `Your ${BRAND} signup was not approved`, html);
+}
+
+// ============================================================================
+// APPEAL REVIEW
+// ============================================================================
+// Suspended users have already lost dashboard access, so the email is the
+// most reliable channel to deliver the review outcome.
+
+function notesBlock(notes?: string): string {
+  if (!notes) return "";
+  return `<div style="background:#F3F4F6;border-left:3px solid #9CA3AF;border-radius:6px;padding:12px 14px;margin:8px 0 14px;color:#374151;font-size:13px;"><strong>Reviewer notes:</strong><br/>${notes}</div>`;
+}
+
+export async function sendAppealApprovedEmail(to: string, userName: string, notes?: string) {
+  const html = shell({
+    title: "Your appeal was approved",
+    preheader: `Your ${BRAND} suspension appeal has been approved`,
+    intro: `Hi ${userName}, an admin has approved your suspension appeal. Your account is now reactivated and you can sign in normally.`,
+    bodyHtml: notesBlock(notes),
+    ctaLabel: "Sign in",
+    ctaHref: `${appUrl}/login`,
+  });
+  return send(to, `Your ${BRAND} appeal was approved`, html);
+}
+
+export async function sendAppealRejectedEmail(to: string, userName: string, notes?: string) {
+  const html = shell({
+    title: "Your appeal was not approved",
+    preheader: `Your ${BRAND} suspension appeal has been rejected`,
+    intro: `Hi ${userName}, an admin has reviewed your suspension appeal and decided not to reactivate your account at this time.`,
+    bodyHtml: `${notesBlock(notes)}<p style="margin:0;">If your situation changes, you may submit another appeal later.</p>`,
+    footerNote: `This message was sent by ${BRAND}.`,
+  });
+  return send(to, `Your ${BRAND} appeal was not approved`, html);
+}
+
+// ============================================================================
+// GROUPS
+// ============================================================================
+// Group leaders care about publication status and the email is more
+// reliable than an in-app badge they may not check for days.
+
+export async function sendGroupApprovedEmail(to: string, userName: string, groupName: string) {
+  const html = shell({
+    title: "Your group is approved",
+    preheader: `Your group "${groupName}" is live`,
+    intro: `Hi ${userName}, your group <strong>${groupName}</strong> has been approved and is now visible to other members on ${BRAND}.`,
+    bodyHtml: "",
+    ctaLabel: "View group",
     ctaHref: `${appUrl}/groups`,
   });
-  return send(to, `Invitation to ${groupName}`, html);
+  return send(to, `Your group "${groupName}" is approved`, html);
+}
+
+export async function sendGroupRejectedEmail(
+  to: string,
+  userName: string,
+  groupName: string,
+  reason?: string,
+) {
+  const html = shell({
+    title: "Your group was not approved",
+    preheader: `Your group "${groupName}" was reviewed`,
+    intro: `Hi ${userName}, after reviewing your group <strong>${groupName}</strong>, our team wasn't able to approve it at this time.`,
+    bodyHtml: `${reasonBlock(reason)}<p style="margin:0;">You can edit the group and resubmit, or contact us if you have questions.</p>`,
+    ctaLabel: "Open groups",
+    ctaHref: `${appUrl}/groups`,
+  });
+  return send(to, `Your group "${groupName}" was not approved`, html);
+}
+
+// ============================================================================
+// SUPPORT TICKETS
+// ============================================================================
+// Sent only when an admin replies to a user's ticket. The reverse direction
+// (user → admin) goes through the admin in-app notification path because
+// admins are typically active on the platform.
+
+export async function sendTicketReplyEmail(
+  to: string,
+  userName: string,
+  ticketSubject: string,
+  ticketId: number,
+  replyExcerpt: string,
+) {
+  // Trim the reply to a reasonable preview so the email body doesn't balloon
+  // and so users still have a reason to click through to the ticket page.
+  const MAX = 400;
+  const excerpt =
+    replyExcerpt.length > MAX
+      ? `${replyExcerpt.slice(0, MAX).replace(/\s+\S*$/, "")}…`
+      : replyExcerpt;
+
+  const html = shell({
+    title: `New reply on your ticket`,
+    preheader: `Re: ${ticketSubject}`,
+    intro: `Hi ${userName}, an admin has replied to your support ticket <strong>${ticketSubject}</strong>.`,
+    bodyHtml: `<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;margin:8px 0 14px;color:#1F2937;font-size:14px;line-height:1.6;white-space:pre-wrap;">${excerpt}</div>`,
+    ctaLabel: "Open ticket",
+    ctaHref: `${appUrl}/support/${ticketId}`,
+  });
+  return send(to, `Re: ${ticketSubject}`, html);
+}
+
+// ============================================================================
+// SECURITY
+// ============================================================================
+// Sent immediately after a user changes their own password. This is a
+// security-best-practice "did you do this?" confirmation — the email is
+// the primary way a hijacked-account owner notices the breach.
+
+export async function sendPasswordChangedEmail(
+  to: string,
+  userName: string,
+  changedAt: string,
+  ipAddress?: string,
+) {
+  const ipRow = ipAddress && ipAddress !== "unknown" ? kvRow("From IP", ipAddress) : "";
+  const html = shell({
+    title: "Your password was changed",
+    preheader: `Your ${BRAND} password was just updated`,
+    intro: `Hi ${userName}, this is a security confirmation that your ${BRAND} password was just changed.`,
+    bodyHtml: `${kvTable([kvRow("When", new Date(changedAt).toUTCString()), ipRow].filter(Boolean))}<p style="margin:0;color:#991B1B;font-size:13px;"><strong>If this wasn't you</strong>, reset your password immediately and contact support.</p>`,
+    ctaLabel: "Reset password",
+    ctaHref: `${appUrl}/forgot-password`,
+    footerNote: `This security alert was sent by ${BRAND}. If you changed your password yourself, no further action is needed.`,
+  });
+  return send(to, `Your ${BRAND} password was changed`, html);
+}
+
+// ============================================================================
+// ADMIN CONTACT MESSAGE
+// ============================================================================
+// Notifies admins out-of-band when a marketing-page contact form is filled
+// in. The in-app notification still fires alongside this email.
+
+export async function sendAdminContactMessageAlert(
+  to: string[],
+  msg: { name: string; email: string; subject?: string | null; messageExcerpt: string },
+) {
+  if (to.length === 0) return false;
+  const MAX = 400;
+  const excerpt =
+    msg.messageExcerpt.length > MAX
+      ? `${msg.messageExcerpt.slice(0, MAX).replace(/\s+\S*$/, "")}…`
+      : msg.messageExcerpt;
+
+  const html = shell({
+    title: "New contact-form message",
+    intro: `A visitor submitted the marketing-site contact form.`,
+    bodyHtml: `${kvTable([
+      kvRow("Name", msg.name),
+      kvRow("Email", msg.email),
+      ...(msg.subject ? [kvRow("Subject", msg.subject)] : []),
+    ])}<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;margin:8px 0 14px;color:#1F2937;font-size:14px;line-height:1.6;white-space:pre-wrap;">${excerpt}</div>`,
+    ctaLabel: "Open inbox",
+    ctaHref: `${appUrl}/contact-messages`,
+    footerNote: `Admin alert from ${BRAND}.`,
+  });
+  return send(to, `[${BRAND}] Contact: ${msg.name}${msg.subject ? ` — ${msg.subject}` : ""}`, html);
 }

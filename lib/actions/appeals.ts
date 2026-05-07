@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { sendAppealApprovedEmail, sendAppealRejectedEmail } from "@/lib/email";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 const appealSchema = z.object({
@@ -196,6 +197,16 @@ export async function reviewAppeal(
 
     const userId = a.user_id as string;
 
+    // Look up user identity once for both branches' email sends.
+    const { data: u } = await db
+      .from("users")
+      .select("email, name")
+      .eq("id", userId)
+      .single();
+    const row = u as Record<string, unknown> | null;
+    const email = row ? String(row.email || "") : "";
+    const name = row ? String(row.name || "there") : "there";
+
     if (action === "approve") {
       // Reactivate user
       await db.from("profiles").update({ status: "active" } as never).eq("user_id", userId);
@@ -209,6 +220,16 @@ export async function reviewAppeal(
         data: { appeal_id: appealId },
       } as never);
 
+      // The user is locked out of the dashboard until they sign in again,
+      // so the email is the most reliable channel for the outcome.
+      if (email) {
+        try {
+          await sendAppealApprovedEmail(email, name, notes);
+        } catch (mailErr) {
+          console.error("[reviewAppeal] approval email failed", mailErr);
+        }
+      }
+
       return { success: true, message: "Appeal approved — user reactivated" };
     } else {
       await db.from("notifications").insert({
@@ -218,6 +239,14 @@ export async function reviewAppeal(
         message: `Your suspension appeal was rejected${notes ? `: ${notes}` : "."}`,
         data: { appeal_id: appealId },
       } as never);
+
+      if (email) {
+        try {
+          await sendAppealRejectedEmail(email, name, notes);
+        } catch (mailErr) {
+          console.error("[reviewAppeal] rejection email failed", mailErr);
+        }
+      }
 
       return { success: true, message: "Appeal rejected" };
     }

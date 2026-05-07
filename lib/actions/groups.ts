@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { slugify } from "@/lib/utils";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
 import { recordAudit } from "@/lib/audit";
+import { sendGroupApprovedEmail, sendGroupRejectedEmail } from "@/lib/email";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 type DB = ReturnType<typeof getServerClient>;
@@ -186,6 +187,22 @@ export async function approveGroup(groupId: number): Promise<ApiResponse> {
         `/groups/${groupId}`,
         { group_id: groupId }
       );
+
+      // Out-of-band email so the leader knows their group is live without
+      // having to check the dashboard.
+      try {
+        const { data: u } = await db
+          .from("users")
+          .select("email, name")
+          .eq("id", leaderId)
+          .single();
+        const row = u as Record<string, unknown> | null;
+        const email = row ? String(row.email || "") : "";
+        const name = row ? String(row.name || "there") : "there";
+        if (email) await sendGroupApprovedEmail(email, name, groupName);
+      } catch (mailErr) {
+        console.error("[approveGroup] notification email failed", mailErr);
+      }
     }
 
     // Notify all members that they're now in an active group
@@ -227,19 +244,34 @@ export async function rejectGroup(groupId: number, reason?: string): Promise<Api
     await db.from("groups").update({ approval_status: "rejected_by_admin" } as never).eq("id", groupId);
 
     const leaderId = g.leader_id as string;
+    const groupName = String(g.name || "");
     if (leaderId !== session.user.id) {
       await notifyUsers(
         db,
         [leaderId],
         "system",
         "Group Rejected",
-        `Your group "${String(g.name || "")}" was rejected${reason ? `: ${reason}` : "."}`,
+        `Your group "${groupName}" was rejected${reason ? `: ${reason}` : "."}`,
         `/groups/${groupId}`,
         { group_id: groupId, reason }
       );
+
+      try {
+        const { data: u } = await db
+          .from("users")
+          .select("email, name")
+          .eq("id", leaderId)
+          .single();
+        const row = u as Record<string, unknown> | null;
+        const email = row ? String(row.email || "") : "";
+        const name = row ? String(row.name || "there") : "there";
+        if (email) await sendGroupRejectedEmail(email, name, groupName, reason);
+      } catch (mailErr) {
+        console.error("[rejectGroup] notification email failed", mailErr);
+      }
     }
 
-    await recordAudit(db, session.user.id, "reject_group", "group", String(groupId), { name: String(g.name || ""), reason: reason || null });
+    await recordAudit(db, session.user.id, "reject_group", "group", String(groupId), { name: groupName, reason: reason || null });
 
     return { success: true, message: "Group rejected" };
   } catch (err) {

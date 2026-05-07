@@ -6,6 +6,7 @@ import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
 import { recordAudit } from "@/lib/audit";
+import { sendAdminContactMessageAlert } from "@/lib/email";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 function isAdmin(role: string | undefined): boolean {
@@ -68,16 +69,18 @@ export async function submitContactForm(
       return { success: false, error: "Couldn't save your message — please try again." };
     }
 
-    // Notify all admins in-app so they see the new message without opening
-    // the inbox page. Best-effort; swallow failures.
+    // Notify all admins both in-app AND by email. Two queries: profiles
+    // for the user_ids (drives in-app), users for the emails (drives the
+    // mail). Best-effort; never blocks the user-facing response.
     try {
-      const { data: admins } = await db
+      const { data: adminProfiles } = await db
         .from("profiles")
         .select("user_id")
         .in("role", ["super_admin", "admin"]);
-      const adminIds = ((admins || []) as Record<string, unknown>[]).map(
+      const adminIds = ((adminProfiles || []) as Record<string, unknown>[]).map(
         (a) => a.user_id as string
       );
+
       if (adminIds.length > 0) {
         const notifs = adminIds.map((uid) => ({
           user_id: uid,
@@ -88,6 +91,22 @@ export async function submitContactForm(
           data: { from_email: parsed.email },
         }));
         await db.from("notifications").insert(notifs as never[]);
+
+        const { data: adminUsers } = await db
+          .from("users")
+          .select("email")
+          .in("id", adminIds);
+        const adminEmails = ((adminUsers || []) as Record<string, unknown>[])
+          .map((u) => String(u.email || ""))
+          .filter((e) => !!e && !e.endsWith("@taskmos.local"));
+        if (adminEmails.length > 0) {
+          await sendAdminContactMessageAlert(adminEmails, {
+            name: parsed.name,
+            email: parsed.email,
+            subject: parsed.subject || null,
+            messageExcerpt: parsed.message,
+          });
+        }
       }
     } catch (err) {
 

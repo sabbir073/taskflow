@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { sendTicketReplyEmail } from "@/lib/email";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 function isAdmin(role: string | undefined): boolean {
@@ -235,7 +236,7 @@ export async function replyToTicket(
 
     // Notify the other party
     const targetUserId = admin ? (t.user_id as string) : null;
-    if (admin && targetUserId) {
+    if (admin && targetUserId && targetUserId !== session.user.id) {
       await db.from("notifications").insert({
         user_id: targetUserId,
         type: "system",
@@ -244,6 +245,31 @@ export async function replyToTicket(
         link: `/support/${ticketId}`,
         data: { ticket_id: ticketId },
       } as never);
+
+      // Email the user — they may not be active on the platform when the
+      // admin reply lands, and waiting for them to come back kills our
+      // first-response time.
+      try {
+        const { data: u } = await db
+          .from("users")
+          .select("email, name")
+          .eq("id", targetUserId)
+          .single();
+        const row = u as Record<string, unknown> | null;
+        const email = row ? String(row.email || "") : "";
+        const name = row ? String(row.name || "there") : "there";
+        if (email) {
+          await sendTicketReplyEmail(
+            email,
+            name,
+            String(t.subject || ""),
+            ticketId,
+            message.trim(),
+          );
+        }
+      } catch (mailErr) {
+        console.error("[replyToTicket] notification email failed", mailErr);
+      }
     } else if (!admin) {
       // Notify admins that user replied
       const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);

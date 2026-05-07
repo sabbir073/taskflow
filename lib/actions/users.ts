@@ -2,14 +2,38 @@
 
 import { hash, compare } from "bcryptjs";
 import { z } from "zod";
+import { headers } from "next/headers";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
-import { sendAccountApprovedEmail, sendVerificationEmail } from "@/lib/email";
+import {
+  sendAccountApprovedEmail,
+  sendVerificationEmail,
+  sendAccountSuspendedEmail,
+  sendAccountReactivatedEmail,
+  sendAccountBannedEmail,
+  sendSignupRejectedEmail,
+  sendPasswordChangedEmail,
+} from "@/lib/email";
 import { escapePgLikeOr } from "@/lib/utils";
 import { recordAudit } from "@/lib/audit";
 import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
 import { handleLeaderRemoval } from "@/lib/actions/groups";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
+
+// Best-effort IP capture for security-alert emails. Trusted only as a
+// hint — never for auth decisions.
+async function getRequestIp(): Promise<string | undefined> {
+  try {
+    const h = await headers();
+    return (
+      h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      h.get("x-real-ip") ||
+      undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
 
 // ===== Get current user's profile =====
 export async function getMyProfile() {
@@ -117,6 +141,24 @@ export async function changePassword(
       .from("users")
       .update({ password_hash: newHash } as never)
       .eq("id", session.user.id);
+
+    // Security best-practice: send a confirmation email so a hijacked-
+    // account owner notices the change immediately. Best-effort — never
+    // block the password change itself on email failure.
+    try {
+      const { data: u } = await db
+        .from("users")
+        .select("email, name")
+        .eq("id", session.user.id)
+        .single();
+      const row = u as Record<string, unknown> | null;
+      const email = row ? String(row.email || "") : "";
+      const name = row ? String(row.name || "there") : "there";
+      const ip = await getRequestIp();
+      if (email) await sendPasswordChangedEmail(email, name, new Date().toISOString(), ip);
+    } catch (mailErr) {
+      console.error("[changePassword] notification email failed", mailErr);
+    }
 
     return { success: true, message: "Password changed successfully" };
   } catch (err) {
@@ -327,6 +369,30 @@ export async function updateUserStatus(
       await handleLeaderRemoval(userId, `leader ${status}`);
     }
 
+    // Out-of-band notification — suspended/banned users can't sign in to
+    // see an in-app notification, so the email is the primary channel.
+    try {
+      const { data: u } = await db
+        .from("users")
+        .select("email, name")
+        .eq("id", userId)
+        .single();
+      const row = u as Record<string, unknown> | null;
+      const email = row ? String(row.email || "") : "";
+      const name = row ? String(row.name || "there") : "there";
+      if (email) {
+        if (status === "suspended") {
+          await sendAccountSuspendedEmail(email, name);
+        } else if (status === "active" && oldStatus === "suspended") {
+          await sendAccountReactivatedEmail(email, name);
+        } else if (status === "banned") {
+          await sendAccountBannedEmail(email, name);
+        }
+      }
+    } catch (mailErr) {
+      console.error("[updateUserStatus] notification email failed", mailErr);
+    }
+
     await recordAudit(db, session.user.id, "status_change", "user", userId, { old_status: oldStatus, new_status: status });
 
     return { success: true, message: "Status updated" };
@@ -347,6 +413,26 @@ export async function deleteUser(userId: string): Promise<ApiResponse> {
     }
 
     const db = getServerClient();
+
+    // Capture email + name BEFORE anonymising so we can still notify the
+    // banned user that their account was removed. After the update below,
+    // the row's email becomes `deleted_<id>@taskmos.local` — useless for
+    // sending mail.
+    let preBanEmail = "";
+    let preBanName = "there";
+    try {
+      const { data: u } = await db
+        .from("users")
+        .select("email, name")
+        .eq("id", userId)
+        .single();
+      const row = u as Record<string, unknown> | null;
+      preBanEmail = row ? String(row.email || "") : "";
+      preBanName = row ? String(row.name || "there") : "there";
+    } catch {
+      // ignore — we'll skip the email if lookup fails
+    }
+
     await db
       .from("profiles")
       .update({ status: "banned" } as never)
@@ -360,6 +446,15 @@ export async function deleteUser(userId: string): Promise<ApiResponse> {
 
     // Any group they led transfers to the next senior member (or is archived)
     await handleLeaderRemoval(userId, "leader deleted");
+
+    // Best-effort ban email using the pre-anonymisation address.
+    if (preBanEmail && !preBanEmail.endsWith("@taskmos.local")) {
+      try {
+        await sendAccountBannedEmail(preBanEmail, preBanName);
+      } catch (mailErr) {
+        console.error("[deleteUser] notification email failed", mailErr);
+      }
+    }
 
     await recordAudit(db, session.user.id, "delete_user", "user", userId);
 
@@ -472,7 +567,36 @@ export async function approveUser(userId: string): Promise<ApiResponse> {
       link: "/dashboard",
     } as never);
 
-    if (email) await sendAccountApprovedEmail(email, name);
+    if (email) {
+      await sendAccountApprovedEmail(email, name);
+
+      // Also send a fresh verification email so newly-approved users have
+      // an actionable link from their first email after approval. Signups
+      // requiring admin review never received a verification email at
+      // signup time (the welcome email was deferred to approval), so this
+      // closes that gap.
+      try {
+        const { data: u } = await db
+          .from("users")
+          .select("email_verified")
+          .eq("id", userId)
+          .single();
+        const alreadyVerified = !!(u as Record<string, unknown> | null)?.email_verified;
+        if (!alreadyVerified) {
+          const token = crypto.randomUUID();
+          const expires = new Date(Date.now() + 60 * 60 * 1000);
+          await db.from("verification_tokens").delete().eq("identifier", email);
+          await db.from("verification_tokens").insert({
+            identifier: email,
+            token,
+            expires: expires.toISOString(),
+          } as never);
+          await sendVerificationEmail(email, token, name);
+        }
+      } catch (mailErr) {
+        console.error("[approveUser] verification email failed", mailErr);
+      }
+    }
 
     await recordAudit(db, session.user.id, "approve_user", "user", userId);
 
@@ -538,8 +662,30 @@ export async function rejectUser(userId: string): Promise<ApiResponse> {
       return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
+
+    // Capture identity before flipping status — banned users still keep
+    // their email so we don't need pre-capture, but doing the lookup once
+    // keeps the email send code simple.
+    const { data: u } = await db
+      .from("users")
+      .select("email, name")
+      .eq("id", userId)
+      .single();
+    const row = u as Record<string, unknown> | null;
+    const email = row ? String(row.email || "") : "";
+    const name = row ? String(row.name || "there") : "there";
+
     await db.from("profiles").update({ status: "banned", is_approved: false } as never).eq("user_id", userId);
     await handleLeaderRemoval(userId, "leader rejected");
+
+    if (email) {
+      try {
+        await sendSignupRejectedEmail(email, name);
+      } catch (mailErr) {
+        console.error("[rejectUser] notification email failed", mailErr);
+      }
+    }
+
     await recordAudit(db, session.user.id, "reject_user", "user", userId);
     return { success: true, message: "User rejected" };
   } catch (err) {
