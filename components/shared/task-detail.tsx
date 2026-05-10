@@ -41,6 +41,32 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   // Admin can click member names to open a profile modal
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
+  // Watch-video metadata — used by the right-column View Video button and
+  // by ProofSection's status note.
+  const isWatchVideo = String(taskType?.slug || "") === "watch-video";
+  const videoUrl = String((task.task_data as Record<string, string> | undefined)?.video_url || "");
+
+  // Lift the user's assignment fetch up so both the left-column ProofSection
+  // and the right-column View Video button see the same state and share a
+  // single refresh after an auto-submit.
+  const taskId = task.id as number;
+  const [myAssignment, setMyAssignment] = useState<Record<string, unknown> | null>(null);
+  const [assignmentLoading, setAssignmentLoading] = useState(true);
+  const [assignmentRefreshKey, setAssignmentRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) setAssignmentLoading(true); });
+    getMyAssignmentForTask(taskId).then((data) => {
+      if (cancelled) return;
+      setMyAssignment(data);
+      setAssignmentLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [taskId, assignmentRefreshKey]);
+
+  const refreshAssignment = () => setAssignmentRefreshKey((k) => k + 1);
+
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -137,7 +163,11 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
         </Card>
 
         {/* Show proof section for anyone who has an assignment */}
-        <MyProofSection task={task} proofType={proofType} />
+        {assignmentLoading ? (
+          <Card><CardContent className="py-6 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></CardContent></Card>
+        ) : myAssignment ? (
+          <ProofSection assignment={myAssignment} task={task} proofType={proofType} onRefresh={refreshAssignment} />
+        ) : null}
 
         {canViewSubmissions && (
           <Card>
@@ -189,15 +219,21 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
         <Card>
           <CardContent>
             <h4 className="text-sm font-semibold mb-3">Task Data</h4>
+            {/* Watch-video tasks: render a "View Video" button in place of
+                the YouTube URL for non-staff users. Staff/owners still see
+                the link below so they can verify the configured video. */}
+            {isWatchVideo && !canViewSubmissions && videoUrl && (
+              <WatchVideoTrigger
+                videoUrl={videoUrl}
+                assignment={myAssignment}
+                onSubmitted={refreshAssignment}
+              />
+            )}
             <TaskDataFields
               taskData={(task.task_data as Record<string, string>) || {}}
               fieldDefs={(taskType?.required_fields as Array<{ name: string; label: string; type: string }>) || []}
               hideKeys={
-                // Watch-video tasks must not leak the YouTube URL to assignees —
-                // they only see the in-app player. Staff/owners still see it.
-                String(taskType?.slug || "") === "watch-video" && !canViewSubmissions
-                  ? ["video_url"]
-                  : []
+                isWatchVideo && !canViewSubmissions ? ["video_url"] : []
               }
             />
           </CardContent>
@@ -272,32 +308,59 @@ function TaskDataFields({
   );
 }
 
-// Client-side component that fetches the user's assignment and renders ProofSection
-function MyProofSection({ task, proofType }: { task: Record<string, unknown>; proofType: string }) {
-  const taskId = task.id as number;
-  const [assignment, setAssignment] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
+// Right-column "View Video" button shown in the Task Data widget for
+// watch-video tasks. Owns the YouTube player modal locally; on
+// completion, auto-submits the user's assignment if they have one in a
+// submittable state. The auto-submit is silent when the viewer is not the
+// assignee (or has no active assignment) — the modal just closes.
+function WatchVideoTrigger({
+  videoUrl,
+  assignment,
+  onSubmitted,
+}: {
+  videoUrl: string;
+  assignment: Record<string, unknown> | null;
+  onSubmitted?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const submitProof = useSubmitProof();
+  const status = String(assignment?.status || "");
+  const canAutoSubmit = !!assignment && (status === "in_progress" || status === "rejected");
 
-  useEffect(() => {
-    let cancelled = false;
-    // Defer the setLoading flip so we don't cascade-render from inside the effect
-    queueMicrotask(() => { if (!cancelled) setLoading(true); });
-    getMyAssignmentForTask(taskId).then((data) => {
-      if (cancelled) return;
-      setAssignment(data);
-      setLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [taskId, refreshKey]);
-
-  if (loading) return (
-    <Card><CardContent className="py-6 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></CardContent></Card>
+  return (
+    <div className="py-2 border-b border-border/30">
+      <p className="text-xs text-muted-foreground">Video</p>
+      <Btn
+        className="w-full mt-1.5"
+        onClick={() => setOpen(true)}
+        isLoading={submitProof.isPending}
+      >
+        <Play className="w-3.5 h-3.5 mr-2" /> View Video
+      </Btn>
+      {open && (
+        <YoutubeWatchModal
+          videoUrl={videoUrl}
+          onClose={() => setOpen(false)}
+          onCompleted={() => {
+            setOpen(false);
+            if (canAutoSubmit) {
+              submitProof.mutate(
+                {
+                  assignmentId: assignment!.id as number,
+                  data: {
+                    proof_urls: [],
+                    proof_screenshots: [],
+                    proof_notes: "Auto-submitted: video watched to completion",
+                  },
+                },
+                { onSuccess: () => onSubmitted?.() }
+              );
+            }
+          }}
+        />
+      )}
+    </div>
   );
-
-  if (!assignment) return null; // User has no assignment for this task
-
-  return <ProofSection assignment={assignment} task={task} proofType={proofType} onRefresh={() => setRefreshKey((k) => k + 1)} />;
 }
 
 function ProofSection({ assignment, task, proofType, onRefresh }: { assignment: Record<string, unknown>; task: Record<string, unknown>; proofType: string; onRefresh?: () => void }) {
@@ -309,12 +372,10 @@ function ProofSection({ assignment, task, proofType, onRefresh }: { assignment: 
   const [proofNotes, setProofNotes] = useState("");
   const [uploading, setUploading] = useState(false);
   const [newUrl, setNewUrl] = useState("");
-  const [showYoutube, setShowYoutube] = useState(false);
 
-  // YouTube auto-watch path: enabled when the task type is "watch-video"
-  // (regardless of proof_type — admins may have created tasks before the
-  // proof_type=none migration ran). The submission auto-fires on the
-  // YouTube IFrame API ENDED state.
+  // YouTube watch-video task — show a status note here; the actual View
+  // Video button lives in the right-column Task Data widget (see
+  // <WatchVideoTrigger /> below).
   const taskType = task.task_types as Record<string, unknown> | undefined;
   const taskData = (task.task_data as Record<string, string>) || {};
   const isWatchVideo = String(taskType?.slug || "") === "watch-video";
@@ -360,49 +421,24 @@ function ProofSection({ assignment, task, proofType, onRefresh }: { assignment: 
     </CardContent></Card>
   );
 
-  // YouTube watch-video flow — replaces the proof form. Submission is
-  // recorded automatically when the user watches the video to its end.
-  // Closing the player early does NOT submit.
+  // YouTube watch-video flow — the actual "View Video" button lives in the
+  // right-hand Task Data widget (see WatchVideoTrigger). The proof section
+  // just shows a status note so the user understands what to do.
   if (isWatchVideo && videoUrl) {
     return (
-      <>
-        <Card>
-          <CardHeader>
-            <CardTitle>Watch the video</CardTitle>
-            <CardDescription>
-              Click the button below to open the in-app player. You must watch the full video — closing it early will not count as completion.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {status === "rejected" && (
-              <p className="text-sm text-error">Previous attempt was rejected: {String(assignment.rejection_reason || "No reason")}. Watch the video again to resubmit.</p>
-            )}
-            <Btn className="w-full" onClick={() => setShowYoutube(true)} isLoading={submitProof.isPending}>
-              <Play className="w-4 h-4 mr-2" /> View Video
-            </Btn>
+      <Card>
+        <CardHeader>
+          <CardTitle>Watch the video</CardTitle>
+          <CardDescription>
+            Open the in-app player from the <strong>Task Data</strong> panel and watch the full video. Submission is recorded automatically when the video ends — closing the player early does not count.
+          </CardDescription>
+        </CardHeader>
+        {status === "rejected" && (
+          <CardContent>
+            <p className="text-sm text-error">Previous attempt was rejected: {String(assignment.rejection_reason || "No reason")}. Watch the video again to resubmit.</p>
           </CardContent>
-        </Card>
-        {showYoutube && (
-          <YoutubeWatchModal
-            videoUrl={videoUrl}
-            onClose={() => setShowYoutube(false)}
-            onCompleted={() => {
-              setShowYoutube(false);
-              submitProof.mutate(
-                {
-                  assignmentId: assignment.id as number,
-                  data: {
-                    proof_urls: [],
-                    proof_screenshots: [],
-                    proof_notes: "Auto-submitted: video watched to completion",
-                  },
-                },
-                { onSuccess: () => onRefresh?.() }
-              );
-            }}
-          />
         )}
-      </>
+      </Card>
     );
   }
 
