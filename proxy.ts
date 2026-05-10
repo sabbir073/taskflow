@@ -16,8 +16,29 @@ const publicPaths = [
 // Auth-only routes — must be signed OUT to visit these
 const authPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
 const authApiPath = "/api/auth";
-const adminOnlyPaths = ["/users", "/settings", "/landing-editor"];
+// Paths only super_admin/admin may access. Moderators are excluded here —
+// these cover system settings, landing-page editing, audit, popups, and
+// appeals. NOTE: /plans is the public plan picker for end-users — do not
+// add it here. Admin plan CRUD is exposed inside the payments page.
+const adminOnlyPaths = [
+  "/settings",
+  "/landing-editor",
+  "/audit",
+  "/popups",
+  "/appeals",
+];
+// Paths a moderator may also access. These mirror the STAFF_ROLES grouping
+// in lib/constants/roles.ts.
+const staffOnlyPaths = [
+  "/users",
+  "/notices",
+  "/broadcast",
+  "/payments",
+  "/contact-messages",
+  "/support",
+];
 const adminRoles = ["super_admin", "admin"];
+const staffRoles = ["super_admin", "admin", "moderator"];
 
 const authProxy = auth((req) => {
   const { pathname } = req.nextUrl;
@@ -85,9 +106,15 @@ const authProxy = auth((req) => {
     return NextResponse.next();
   }
 
-  // RBAC for admin-only paths
+  // RBAC for admin-only paths (moderator excluded)
   const isAdminPath = adminOnlyPaths.some((p) => pathname.startsWith(p));
   if (isAdminPath && !adminRoles.includes(user.role)) {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  }
+
+  // RBAC for staff paths (admin + moderator)
+  const isStaffPath = staffOnlyPaths.some((p) => pathname.startsWith(p));
+  if (isStaffPath && !staffRoles.includes(user.role)) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 

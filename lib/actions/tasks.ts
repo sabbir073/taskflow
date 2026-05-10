@@ -5,6 +5,7 @@ import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
 import { recordAudit } from "@/lib/audit";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 const taskSchema = z.object({
@@ -16,7 +17,7 @@ const taskSchema = z.object({
   task_data: z.record(z.string(), z.string()).optional().default({}),
   images: z.array(z.string()).optional().default([]),
   urls: z.array(z.string()).optional().default([]),
-  proof_type: z.enum(["url", "screenshot", "both"]).default("both"),
+  proof_type: z.enum(["url", "screenshot", "both", "none"]).default("both"),
   point_budget: z.number().min(0.01, "Budget must be greater than 0"),
   points_per_completion: z.number().min(0.01, "Points per completion must be greater than 0"),
   priority: z.enum(["low", "medium", "high"]),
@@ -41,7 +42,7 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
 
     const validated = taskSchema.parse(formData);
     const db = getServerClient();
-    const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+    const isAdmin = isStaffRole(session.user.role);
 
     // Suspended users cannot create tasks
     if (!isAdmin) {
@@ -150,7 +151,7 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
         );
       } else {
         // User-created task — notify all admins in real-time for review
-        const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+        const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
         const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
         if (adminIds.length > 0) {
           const creatorName = session.user.name || "A user";
@@ -259,7 +260,7 @@ export async function approveTask(taskId: number): Promise<ApiResponse> {
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-    if (!["super_admin", "admin"].includes(session.user.role)) {
+    if (!isStaffRole(session.user.role)) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -312,7 +313,7 @@ export async function rejectTask(taskId: number, reason?: string): Promise<ApiRe
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-    if (!["super_admin", "admin"].includes(session.user.role)) {
+    if (!isStaffRole(session.user.role)) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -366,7 +367,7 @@ export async function updateTask(
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
-    const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+    const isAdmin = isStaffRole(session.user.role);
 
     // Verify ownership or admin
     const { data: existing } = await db.from("tasks").select("created_by, approval_status, title, points_spent").eq("id", taskId).single();
@@ -442,7 +443,7 @@ export async function updateTask(
     // User edited their own task
     if (needsReapproval) {
       // Notify all admins that a task needs re-review
-      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+      const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
       const adminIds = ((admins || []) as Record<string, unknown>[]).map(a => a.user_id as string);
       if (adminIds.length > 0) {
         const notifs = adminIds.map(uid => ({
@@ -472,7 +473,7 @@ export async function deleteTask(taskId: number): Promise<ApiResponse> {
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
-    const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+    const isAdmin = isStaffRole(session.user.role);
 
     // Look up the task FIRST so we can gate by ownership before doing
     // anything destructive. Previously this action let any signed-in
@@ -534,8 +535,8 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
 
     const db = getServerClient();
 
-    const isAdminRole = ["super_admin", "admin"].includes(session.user.role);
-    if (!isAdminRole) {
+    const isStaff = isStaffRole(session.user.role);
+    if (!isStaff) {
       const subErr = await checkActiveSubscription(db, session.user.id);
       if (subErr) return { success: false, error: subErr };
     }
@@ -555,7 +556,7 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
       return { success: false, error: `Insufficient points. You have ${balance.toFixed(2)} but need ${budget.toFixed(2)}` };
     }
 
-    const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+    const isAdmin = isStaffRole(session.user.role);
     const approvalStatus = isAdmin ? "approved" : "pending_approval";
 
     await db.from("tasks").update({ status: "pending", approval_status: approvalStatus } as never).eq("id", taskId);
@@ -571,7 +572,7 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
       );
     } else {
       // Notify all admins that a user-published task needs review
-      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+      const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
       const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
       if (adminIds.length > 0) {
         const creatorName = session.user.name || "A user";
@@ -649,7 +650,7 @@ export async function getTaskById(taskId: number) {
   if (!task) return null;
 
   const t = task as Record<string, unknown>;
-  const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+  const isAdmin = isStaffRole(session.user.role);
   const isCreator = t.created_by === session.user.id;
   const group = t.groups as Record<string, unknown> | null;
   const isGroupLeader = !!group && group.leader_id === session.user.id;

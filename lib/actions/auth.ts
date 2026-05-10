@@ -10,6 +10,7 @@ import {
   sendAdminNewSignupAlert,
 } from "@/lib/email";
 import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
+import { STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
 // Caller IP (best-effort — trusted only as a rate-limit key, never for auth).
@@ -208,7 +209,7 @@ export async function registerUser(formData: {
       const { data: admins } = await db
         .from("users")
         .select("id, email, profiles!inner(role)")
-        .in("profiles.role", ["super_admin", "admin"]);
+        .in("profiles.role", STAFF_ROLES as readonly string[]);
       const adminRows = (admins || []) as Record<string, unknown>[];
       const adminIds = adminRows.map((a) => a.id as string);
       const adminEmails = adminRows.map((a) => a.email as string).filter(Boolean);

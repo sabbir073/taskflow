@@ -24,6 +24,7 @@ export type AuditAction =
   | "update_plan"
   | "delete_plan"
   | "assign_plan"
+  | "signup_credits_granted"
   | "contact_update"
   | "contact_delete";
 

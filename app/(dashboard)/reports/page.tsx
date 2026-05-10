@@ -6,7 +6,8 @@ import ReportsView from "./reports-view-loader";
 export const metadata: Metadata = { title: "Reports & Analytics" };
 
 export default async function ReportsPage() {
-  await requireRole(["super_admin", "admin", "group_leader"]);
+  // Reports are viewable by staff (moderator + admin) and group leaders.
+  await requireRole(["super_admin", "admin", "moderator", "group_leader"]);
   return (
     <div>
       <PageHeader title="Reports & Analytics" description="Comprehensive data insights with charts and export" />

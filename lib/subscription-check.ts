@@ -1,6 +1,7 @@
 import type { getServerClient } from "@/lib/db/supabase";
 import { periodMultiplier } from "@/lib/currency";
 import { sendSubscriptionExpiringEmail, sendSubscriptionExpiredEmail } from "@/lib/email";
+import { isStaffRole } from "@/lib/constants/roles";
 
 type DB = ReturnType<typeof getServerClient>;
 
@@ -99,8 +100,8 @@ export async function checkQuota(
   role: string | undefined,
   kind: "task" | "group"
 ): Promise<string | null> {
-  // Admins bypass all quotas
-  if (["super_admin", "admin"].includes(role || "")) return null;
+  // Staff (admin + moderator) bypass all quotas
+  if (isStaffRole(role)) return null;
 
   // Gate only when subscriptions are required
   const { data: setting } = await db

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { PageHeader } from "@/components/shared/page-header";
 import { TasksView } from "@/components/shared/tasks-view";
-import type { UserRole } from "@/types/database";
 import Link from "next/link";
 import { Btn } from "@/components/ui";
 import { Plus } from "lucide-react";
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Tasks" };
 
 export default async function TasksPage() {
   const user = await requireAuth();
-  const isAdmin = (["super_admin", "admin"] as UserRole[]).includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   return (
     <div>

@@ -3,10 +3,12 @@
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { escapePgLikeOr } from "@/lib/utils";
+import { isAdminRole } from "@/lib/constants/roles";
 import type { PaginatedResponse, PaginationParams } from "@/types";
 
+// Audit log is admin-only — moderators are deliberately excluded.
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isAdminRole(role);
 }
 
 // Admin-only. Returns a paginated audit log with optional filters. Joins the

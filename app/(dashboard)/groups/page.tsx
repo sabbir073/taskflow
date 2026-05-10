@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { PageHeader } from "@/components/shared/page-header";
 import { GroupsList } from "@/components/shared/groups-list";
 import Link from "next/link";
 import { Btn } from "@/components/ui";
 import { Plus } from "lucide-react";
-import type { UserRole } from "@/types/database";
 
 export const metadata: Metadata = { title: "Groups" };
 
 export default async function GroupsPage() {
   const user = await requireAuth();
-  const isAdmin = (["super_admin", "admin"] as UserRole[]).includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   return (
     <div>

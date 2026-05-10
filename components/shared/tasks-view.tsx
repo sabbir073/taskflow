@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, Input, Select, Btn, Badge } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, Input, Select, Btn, Badge } from "@/components/ui";
 import {
   Search, Clock, CheckCircle, XCircle, Plus, Coins, Trash2, Edit2,
   ExternalLink, Image as ImageIcon, Wallet, FileText,
@@ -46,7 +46,7 @@ const APPROVAL_VARIANT: Record<string, "success" | "warning" | "error" | "defaul
 };
 
 export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: string }) {
-  const [activeTab, setActiveTab] = useState<"my" | "doable" | "manage" | "review">("my");
+  const [activeTab, setActiveTab] = useState<"my" | "doable" | "manage" | "review">("doable");
 
   const myTasksCount = useTasks({ page: 1, pageSize: 1, created_by: userId });
   const doableCount = useMyTasks({ page: 1, pageSize: 1 });
@@ -54,8 +54,8 @@ export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: strin
   const reviewCount = usePendingReviews({ page: 1, pageSize: 1 });
 
   const tabs = [
-    { key: "my" as const, label: "My Tasks", short: "Mine", count: myTasksCount.data?.total ?? 0 },
     { key: "doable" as const, label: "Doable Tasks", short: "Doable", count: doableCount.data?.total ?? 0 },
+    { key: "my" as const, label: "My Tasks", short: "Mine", count: myTasksCount.data?.total ?? 0 },
     ...(isAdmin
       ? [
           { key: "manage" as const, label: "Manage Tasks", short: "Manage", count: manageCount.data?.total ?? 0 },
@@ -301,122 +301,177 @@ function DoableTasksTab() {
         <EmptyState icon={Clock} title="No doable tasks" description="No tasks have been assigned to you yet" />
       ) : (
         <div className="space-y-3">
-          {items.map((item) => {
-            const task = (item.tasks as Record<string, unknown>) || item;
-            const taskId = task.id as number;
-            const assignmentId = item.id as number;
-            const title = String(task.title || "Untitled");
-            const platform = task.platforms as Record<string, unknown> | undefined;
-            const taskType = task.task_types as Record<string, unknown> | undefined;
-            const points = Number(task.points_per_completion || task.points || 0);
-            const status = String(item.status);
-            const slug = String(platform?.slug || "");
-            const config = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
-            const badge = ASSIGNMENT_BADGE[status] || { variant: "default" as const, label: status };
-            const platformColor = config?.color || "#666";
-            const platformName = String(platform?.name || "");
-            const typeName = String(taskType?.name || "");
-            const earned = Number(item.points_awarded || 0);
-
-            return (
-              <Card key={assignmentId} className="overflow-hidden hover:shadow-md transition-all">
-                {/* DESKTOP — original */}
-                <div className="hidden sm:block">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <Link href={`/tasks/${taskId}`} className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-80 transition-opacity">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: platformColor }}>
-                          {platformName.charAt(0) || "?"}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm truncate hover:text-primary transition-colors">{title}</p>
-                          <p className="text-xs text-muted-foreground">{platformName} &middot; {typeName} &middot; <span className="text-primary font-medium">{points.toFixed(2)} pts</span></p>
-                        </div>
-                      </Link>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant={badge.variant}>{badge.label}</Badge>
-
-                        {status === "pending" && (
-                          <Btn size="sm" onClick={() => acceptTask.mutate(assignmentId)} isLoading={acceptTask.isPending}>Accept</Btn>
-                        )}
-                        {(status === "in_progress" || status === "rejected") && (
-                          <Link href={`/tasks/${taskId}`}><Btn size="sm" variant="primary">Submit Proof</Btn></Link>
-                        )}
-                        {status === "submitted" && (
-                          <Link href={`/tasks/${taskId}`}><Btn size="sm" variant="outline">View Status</Btn></Link>
-                        )}
-                        {status === "approved" && (
-                          <span className="text-xs text-success font-medium flex items-center gap-1">
-                            <CheckCircle className="w-3.5 h-3.5" /> +{earned.toFixed(2)} pts
-                          </span>
-                        )}
-                        <Link href={`/tasks/${taskId}`}><Btn variant="ghost" size="sm">View</Btn></Link>
-                      </div>
-                    </div>
-                  </CardContent>
-                </div>
-
-                {/* MOBILE */}
-                <div className="sm:hidden">
-                  <div className="flex items-start justify-between gap-3 px-4 pt-4">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm" style={{ backgroundColor: platformColor }}>
-                        {platformName.charAt(0) || "?"}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{platformName}</p>
-                        <p className="text-xs text-muted-foreground/80 truncate">{typeName}</p>
-                      </div>
-                    </div>
-                    <Badge variant={badge.variant}>{badge.label}</Badge>
-                  </div>
-
-                  <Link href={`/tasks/${taskId}`} className="block px-4 mt-3">
-                    <h3 className="text-base font-bold leading-tight active:text-primary transition-colors">{title}</h3>
-                  </Link>
-
-                  <div className="px-4 mt-3 flex items-center gap-2">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold">
-                      <Coins className="w-3 h-3" /> {points.toFixed(2)} pts
-                    </div>
-                    {status === "approved" && (
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/10 text-success text-xs font-semibold">
-                        <CheckCircle className="w-3 h-3" /> +{earned.toFixed(2)} earned
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-2 px-4 py-3 border-t border-border/50 bg-muted/20">
-                    {status === "pending" && (
-                      <Btn size="sm" className="flex-1" onClick={() => acceptTask.mutate(assignmentId)} isLoading={acceptTask.isPending}>
-                        Accept Task
-                      </Btn>
-                    )}
-                    {(status === "in_progress" || status === "rejected") && (
-                      <Link href={`/tasks/${taskId}`} className="flex-1">
-                        <Btn size="sm" className="w-full">Submit Proof</Btn>
-                      </Link>
-                    )}
-                    {(status === "submitted" || status === "approved") && (
-                      <Link href={`/tasks/${taskId}`} className="flex-1">
-                        <Btn size="sm" variant="outline" className="w-full">View Details</Btn>
-                      </Link>
-                    )}
-                    {status === "pending" && (
-                      <Link href={`/tasks/${taskId}`}>
-                        <Btn variant="outline" size="sm">View</Btn>
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+          {items.map((item) => (
+            <DoableTaskRow
+              key={item.id as number}
+              item={item}
+              onAccept={(assignmentId) => acceptTask.mutate(assignmentId)}
+              acceptPending={acceptTask.isPending}
+            />
+          ))}
         </div>
       )}
       <Pagination page={page} totalPages={totalPages} setPage={setPage} />
     </div>
+  );
+}
+
+// Shared row used by both the full Doable tab and the Dashboard preview.
+// Keeping the desktop/mobile split here so both views render identically.
+function DoableTaskRow({
+  item,
+  onAccept,
+  acceptPending,
+}: {
+  item: Record<string, unknown>;
+  onAccept: (assignmentId: number) => void;
+  acceptPending: boolean;
+}) {
+  const task = (item.tasks as Record<string, unknown>) || item;
+  const taskId = task.id as number;
+  const assignmentId = item.id as number;
+  const title = String(task.title || "Untitled");
+  const platform = task.platforms as Record<string, unknown> | undefined;
+  const taskType = task.task_types as Record<string, unknown> | undefined;
+  const points = Number(task.points_per_completion || task.points || 0);
+  const status = String(item.status);
+  const slug = String(platform?.slug || "");
+  const config = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
+  const badge = ASSIGNMENT_BADGE[status] || { variant: "default" as const, label: status };
+  const platformColor = config?.color || "#666";
+  const platformName = String(platform?.name || "");
+  const typeName = String(taskType?.name || "");
+  const earned = Number(item.points_awarded || 0);
+
+  return (
+    <Card className="overflow-hidden hover:shadow-md transition-all">
+      {/* DESKTOP — original */}
+      <div className="hidden sm:block">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-3">
+            <Link href={`/tasks/${taskId}`} className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-80 transition-opacity">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: platformColor }}>
+                {platformName.charAt(0) || "?"}
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate hover:text-primary transition-colors">{title}</p>
+                <p className="text-xs text-muted-foreground">{platformName} &middot; {typeName} &middot; <span className="text-primary font-medium">{points.toFixed(2)} pts</span></p>
+              </div>
+            </Link>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge variant={badge.variant}>{badge.label}</Badge>
+
+              {status === "pending" && (
+                <Btn size="sm" onClick={() => onAccept(assignmentId)} isLoading={acceptPending}>Accept</Btn>
+              )}
+              {(status === "in_progress" || status === "rejected") && (
+                <Link href={`/tasks/${taskId}`}><Btn size="sm" variant="primary">Submit Proof</Btn></Link>
+              )}
+              {status === "submitted" && (
+                <Link href={`/tasks/${taskId}`}><Btn size="sm" variant="outline">View Status</Btn></Link>
+              )}
+              {status === "approved" && (
+                <span className="text-xs text-success font-medium flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5" /> +{earned.toFixed(2)} pts
+                </span>
+              )}
+              <Link href={`/tasks/${taskId}`}><Btn variant="ghost" size="sm">View</Btn></Link>
+            </div>
+          </div>
+        </CardContent>
+      </div>
+
+      {/* MOBILE */}
+      <div className="sm:hidden">
+        <div className="flex items-start justify-between gap-3 px-4 pt-4">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm" style={{ backgroundColor: platformColor }}>
+              {platformName.charAt(0) || "?"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{platformName}</p>
+              <p className="text-xs text-muted-foreground/80 truncate">{typeName}</p>
+            </div>
+          </div>
+          <Badge variant={badge.variant}>{badge.label}</Badge>
+        </div>
+
+        <Link href={`/tasks/${taskId}`} className="block px-4 mt-3">
+          <h3 className="text-base font-bold leading-tight active:text-primary transition-colors">{title}</h3>
+        </Link>
+
+        <div className="px-4 mt-3 flex items-center gap-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+            <Coins className="w-3 h-3" /> {points.toFixed(2)} pts
+          </div>
+          {status === "approved" && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/10 text-success text-xs font-semibold">
+              <CheckCircle className="w-3 h-3" /> +{earned.toFixed(2)} earned
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex items-center gap-2 px-4 py-3 border-t border-border/50 bg-muted/20">
+          {status === "pending" && (
+            <Btn size="sm" className="flex-1" onClick={() => onAccept(assignmentId)} isLoading={acceptPending}>
+              Accept Task
+            </Btn>
+          )}
+          {(status === "in_progress" || status === "rejected") && (
+            <Link href={`/tasks/${taskId}`} className="flex-1">
+              <Btn size="sm" className="w-full">Submit Proof</Btn>
+            </Link>
+          )}
+          {(status === "submitted" || status === "approved") && (
+            <Link href={`/tasks/${taskId}`} className="flex-1">
+              <Btn size="sm" variant="outline" className="w-full">View Details</Btn>
+            </Link>
+          )}
+          {status === "pending" && (
+            <Link href={`/tasks/${taskId}`}>
+              <Btn variant="outline" size="sm">View</Btn>
+            </Link>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// Dashboard preview: top N doable tasks in a full-width card with "View all"
+// link. Mounted in <DashboardContent /> directly under the stat-cards row.
+export function DoableTasksPreview({ limit = 5 }: { limit?: number }) {
+  const { data, isLoading } = useMyTasks({ page: 1, pageSize: limit });
+  const acceptTask = useAcceptTask();
+  const items = data?.data || [];
+  const total = data?.total ?? 0;
+
+  return (
+    <Card className="mb-8">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Available Tasks {total > 0 && <span className="text-sm font-normal text-muted-foreground ml-1">({total})</span>}</CardTitle>
+        <Link href="/tasks" className="text-xs text-primary hover:underline flex items-center gap-1">
+          View all <ExternalLink className="w-3 h-3" />
+        </Link>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <LoadingSkeleton />
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">No tasks available right now</p>
+        ) : (
+          items.map((item) => (
+            <DoableTaskRow
+              key={item.id as number}
+              item={item}
+              onAccept={(assignmentId) => acceptTask.mutate(assignmentId)}
+              acceptPending={acceptTask.isPending}
+            />
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -7,6 +7,7 @@ import { slugify } from "@/lib/utils";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
 import { recordAudit } from "@/lib/audit";
 import { sendGroupApprovedEmail, sendGroupRejectedEmail } from "@/lib/email";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 type DB = ReturnType<typeof getServerClient>;
@@ -22,12 +23,14 @@ const groupSchema = z.object({
   cover_url: z.string().optional().nullable(),
 });
 
+// Group management is a staff (admin + moderator) operation per the
+// moderator permissions matrix.
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 async function getAdminIds(db: DB): Promise<string[]> {
-  const { data } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+  const { data } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
   return ((data || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
 }
 

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { isStaffRole } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
 const noticeSchema = z.object({
@@ -11,8 +12,10 @@ const noticeSchema = z.object({
   is_active: z.boolean().optional().default(true),
 });
 
+// Notices are managed by staff (admin + moderator). Local alias keeps
+// existing call sites unchanged.
 function isAdminRole(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 // Public: fetch all active notices for the dashboard

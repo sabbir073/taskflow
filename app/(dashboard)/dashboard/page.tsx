@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { getAdminDashboardStats, getUserDashboardStats, getRecentActivity, getTopPerformers } from "@/lib/actions/analytics";
 import { DashboardContent } from "@/components/shared/dashboard-content";
 import { DashboardFlashToast } from "@/components/shared/dashboard-flash-toast";
-import type { UserRole } from "@/types/database";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const user = await requireAuth();
-  const isAdmin = (["super_admin", "admin"] as UserRole[]).includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   const [adminStats, userStats, activity, topPerformers] = await Promise.all([
     isAdmin ? getAdminDashboardStats() : null,

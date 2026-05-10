@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { computeExpiresAt, periodMultiplier } from "@/lib/currency";
 import { computeRemainingQuota } from "@/lib/subscription-check";
 import { recordAudit } from "@/lib/audit";
+import { isAdminRole, isStaffRole } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
 export async function getPlans() {
@@ -201,7 +202,7 @@ export async function checkSubscriptionRequired(): Promise<{ required: boolean; 
 // Admin: fetch every plan regardless of is_active — for plan management UI
 export async function getAllPlans() {
   const session = await auth();
-  if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role)) return [];
+  if (!session?.user?.id || !isAdminRole(session.user.role)) return [];
   const db = getServerClient();
   const { data } = await db.from("plans").select("*").order("display_order", { ascending: true }).order("id");
   return (data || []) as Record<string, unknown>[];
@@ -231,7 +232,7 @@ const planSchema = z.object({
 export async function createPlan(formData: z.infer<typeof planSchema>): Promise<ApiResponse> {
   try {
     const session = await auth();
-    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+    if (!session?.user?.id || !isAdminRole(session.user.role))
       return { success: false, error: "Unauthorized" };
 
     const validated = planSchema.parse(formData);
@@ -260,7 +261,7 @@ export async function createPlan(formData: z.infer<typeof planSchema>): Promise<
 export async function updatePlan(planId: number, formData: Partial<z.infer<typeof planSchema>>): Promise<ApiResponse> {
   try {
     const session = await auth();
-    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+    if (!session?.user?.id || !isAdminRole(session.user.role))
       return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
@@ -283,7 +284,7 @@ export async function updatePlan(planId: number, formData: Partial<z.infer<typeo
 export async function deletePlan(planId: number): Promise<ApiResponse> {
   try {
     const session = await auth();
-    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+    if (!session?.user?.id || !isAdminRole(session.user.role))
       return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
@@ -320,7 +321,8 @@ export async function adminAssignSubscription(
 ): Promise<ApiResponse> {
   try {
     const session = await auth();
-    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+    // Subscription assignment is part of payments management — moderator-allowed.
+    if (!session?.user?.id || !isStaffRole(session.user.role))
       return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();

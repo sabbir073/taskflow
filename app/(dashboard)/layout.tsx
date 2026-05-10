@@ -10,6 +10,7 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { SettingsProvider } from "@/components/providers/settings-provider";
 import { StatusWatcher } from "@/components/shared/status-watcher";
 import { PopupDisplay } from "@/components/shared/popup-display";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 
 // Authenticated app — keep crawlers out. Even though proxy.ts redirects
 // unauthenticated visitors to /login, an explicit noindex prevents any
@@ -58,14 +59,13 @@ export default async function DashboardLayout({
     redirect("/suspended");
   }
 
-  // Demoted-admin compensator: if the JWT still carries an admin role but
-  // the DB no longer does, force a sign-out so the next session is minted
-  // with the correct (lower) role. Promotions don't need this — the user
-  // simply gets the new privilege at next login. Sideways changes between
-  // super_admin and admin also force re-auth as a safety net.
-  const adminRoles = ["super_admin", "admin"];
-  const wasPrivileged = adminRoles.includes(user.role);
-  const isPrivileged = adminRoles.includes(currentRole);
+  // Demoted-staff compensator: if the JWT still carries a privileged role
+  // (super_admin/admin/moderator) but the DB no longer does, force a sign-out
+  // so the next session is minted with the correct (lower) role. Sideways
+  // changes between privileged tiers also force re-auth as a safety net.
+  const privileged = STAFF_ROLES as readonly string[];
+  const wasPrivileged = privileged.includes(user.role);
+  const isPrivileged = privileged.includes(currentRole);
   if ((wasPrivileged && !isPrivileged) || (wasPrivileged && currentRole !== user.role)) {
     redirect("/api/auth/signout?callbackUrl=/login");
   }
@@ -75,7 +75,7 @@ export default async function DashboardLayout({
 
   const settings = await getSettings();
 
-  const isAdmin = ["super_admin", "admin"].includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   return (
     <SettingsProvider initialSettings={settings}>

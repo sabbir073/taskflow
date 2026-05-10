@@ -36,7 +36,7 @@ export async function requireActiveUser(): Promise<SessionUser> {
   return user;
 }
 
-export async function requireRole(allowedRoles: UserRole[]): Promise<SessionUser> {
+export async function requireRole(allowedRoles: readonly UserRole[]): Promise<SessionUser> {
   const user = await requireAuth();
   if (!allowedRoles.includes(user.role)) {
     redirect("/dashboard?error=Unauthorized");

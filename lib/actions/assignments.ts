@@ -3,6 +3,7 @@
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { checkActiveSubscription } from "@/lib/subscription-check";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 // Helper: check if user is suspended
@@ -166,15 +167,18 @@ export async function submitProof(
 
     const taskId = record.task_id as number;
 
-    // Validate proof type - use task's own proof_type field
+    // Validate proof type - use task's own proof_type field. proof_type
+    // "none" (e.g. YouTube watch-video tasks) auto-submit with no proof.
     const { data: task } = await db.from("tasks").select("title, proof_type").eq("id", taskId).single();
     const taskRecord = (task as Record<string, unknown>) || {};
     if (task) {
       const proofType = String(taskRecord.proof_type || "both");
-      if ((proofType === "url" || proofType === "both") && (!data.proof_urls || data.proof_urls.length === 0))
-        return { success: false, error: "At least one URL proof is required" };
-      if ((proofType === "screenshot" || proofType === "both") && (!data.proof_screenshots || data.proof_screenshots.length === 0))
-        return { success: false, error: "At least one screenshot proof is required" };
+      if (proofType !== "none") {
+        if ((proofType === "url" || proofType === "both") && (!data.proof_urls || data.proof_urls.length === 0))
+          return { success: false, error: "At least one URL proof is required" };
+        if ((proofType === "screenshot" || proofType === "both") && (!data.proof_screenshots || data.proof_screenshots.length === 0))
+          return { success: false, error: "At least one screenshot proof is required" };
+      }
     }
 
     // Atomic capacity-check + status update + sibling cancellation. The
@@ -200,8 +204,8 @@ export async function submitProof(
       return { success: false, error: "Failed to submit proof" };
     }
 
-    // Notify all admins in real-time that a proof needs review
-    const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+    // Notify all admins + moderators in real-time that a proof needs review
+    const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
     const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
     if (adminIds.length > 0) {
       const submitterName = session.user.name || "A user";
@@ -234,7 +238,7 @@ export async function reviewAssignment(
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-    if (!["super_admin", "admin"].includes(session.user.role)) return { success: false, error: "Unauthorized" };
+    if (!isStaffRole(session.user.role)) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
     const { data: assignment } = await db.from("task_assignments").select("id, user_id, status, task_id").eq("id", assignmentId).single();
@@ -392,8 +396,9 @@ export async function getGroupTaskStatus(taskId: number): Promise<
   if (!session?.user?.id) return [];
   const db = getServerClient();
 
-  // Authorization: admin, task creator, or leader of the task's target group.
-  const isAdmin = ["super_admin", "admin"].includes(session.user.role);
+  // Authorization: staff (admin/moderator), task creator, or leader of the
+  // task's target group.
+  const isAdmin = isStaffRole(session.user.role);
   let allowed = isAdmin;
   const { data: task } = await db
     .from("tasks")

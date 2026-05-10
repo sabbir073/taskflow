@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { getTaskById } from "@/lib/actions/tasks";
 import { PageHeader } from "@/components/shared/page-header";
 import { TaskEditForm } from "@/components/shared/task-edit-form";
@@ -18,7 +19,7 @@ export default async function EditTaskPage({ params }: { params: Promise<{ id: s
 
   const task = data.task;
   const isOwner = (task.created_by as string) === user.id;
-  const isAdmin = ["super_admin", "admin"].includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   if (!isOwner && !isAdmin) notFound();
 

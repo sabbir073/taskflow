@@ -7,6 +7,7 @@ import { SubscriptionBanner } from "@/components/shared/subscription-banner";
 import { Card, CardHeader, CardTitle, CardContent, Badge } from "@/components/ui";
 import { ListTodo, Clock, Trophy, TrendingUp, Users, CheckCircle, ArrowRight, XCircle, Coins, Hourglass, Send } from "lucide-react";
 import { formatRelativeTime, getInitials } from "@/lib/utils";
+import { DoableTasksPreview } from "@/components/shared/tasks-view";
 import Link from "next/link";
 
 interface Props {
@@ -46,6 +47,8 @@ export function DashboardContent({ userName, isAdmin, adminStats, userStats, rec
           </>
         ) : null}
       </div>
+
+      <DoableTasksPreview limit={5} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Activity — admins see platform-wide, users see their own */}

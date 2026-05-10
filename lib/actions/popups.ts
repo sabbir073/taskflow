@@ -3,10 +3,12 @@
 import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { isAdminRole } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
+// Popups are admin-only — moderators are deliberately excluded.
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isAdminRole(role);
 }
 
 const popupSchema = z.object({

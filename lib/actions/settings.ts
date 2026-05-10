@@ -2,6 +2,7 @@
 
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { isAdminRole } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
 export async function getSettings(category?: string) {
@@ -27,7 +28,8 @@ export async function getSettingsMap(): Promise<Record<string, unknown>> {
 export async function updateSetting(key: string, value: unknown): Promise<ApiResponse> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-  if (!["super_admin", "admin"].includes(session.user.role)) {
+  // System settings are admin-only — moderators are deliberately excluded.
+  if (!isAdminRole(session.user.role)) {
     return { success: false, error: "Unauthorized" };
   }
 

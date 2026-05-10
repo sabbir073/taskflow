@@ -18,6 +18,7 @@ import { escapePgLikeOr } from "@/lib/utils";
 import { recordAudit } from "@/lib/audit";
 import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
 import { handleLeaderRemoval } from "@/lib/actions/groups";
+import { isStaffRole } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 // Best-effort IP capture for security-alert emails. Trusted only as a
@@ -185,7 +186,7 @@ export async function getUsers(params: PaginationParams & {
   // raw data — the page route is also gated, but the action must self-guard
   // so a direct client-side invocation can't enumerate users.
   const session = await auth();
-  if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role)) {
+  if (!session?.user?.id || !isStaffRole(session.user.role)) {
     return { data: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
   }
   const db = getServerClient();
@@ -232,8 +233,8 @@ export async function getUserById(userId: string) {
   // used by the admin "user profile modal" and by the self profile page.
   const session = await auth();
   if (!session?.user?.id) return null;
-  const callerIsAdmin = ["super_admin", "admin"].includes(session.user.role);
-  if (!callerIsAdmin && session.user.id !== userId) return null;
+  const callerIsStaff = isStaffRole(session.user.role);
+  if (!callerIsStaff && session.user.id !== userId) return null;
 
   const db = getServerClient();
 
@@ -306,7 +307,7 @@ export async function updateUserRole(
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
 
-    const validRoles = ["super_admin", "admin", "group_leader", "user"];
+    const validRoles = ["super_admin", "admin", "moderator", "group_leader", "user"];
     if (!validRoles.includes(role)) {
       return { success: false, error: "Invalid role" };
     }
@@ -314,6 +315,11 @@ export async function updateUserRole(
     // Only super_admin can assign super_admin role
     if (role === "super_admin" && session.user.role !== "super_admin") {
       return { success: false, error: "Only Super Admin can assign this role" };
+    }
+    // Moderators cannot promote anyone to admin or super_admin (no privilege
+    // escalation). They can still toggle moderator/group_leader/user.
+    if ((role === "admin" || role === "super_admin") && session.user.role === "moderator") {
+      return { success: false, error: "Moderators cannot assign this role" };
     }
 
     const db = getServerClient();
@@ -482,7 +488,7 @@ export async function assignPoints(
   try {
     const session = await auth();
     if (!session?.user?.id) return { success: false, error: "Unauthorized" };
-    if (!["super_admin", "admin"].includes(session.user.role)) {
+    if (!isStaffRole(session.user.role)) {
       return { success: false, error: "Only admins can assign points" };
     }
     if (amount === 0) return { success: false, error: "Amount cannot be zero" };
@@ -554,11 +560,80 @@ export async function getMyBalance(): Promise<number> {
 export async function approveUser(userId: string): Promise<ApiResponse> {
   try {
     const session = await auth();
-    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+    if (!session?.user?.id || !isStaffRole(session.user.role))
       return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
+
+    // Idempotency: skip the credit grant + emails if already approved. We
+    // still allow the function to succeed so the UI doesn't error on a
+    // double-click, but we don't double-grant signup credits.
+    const { data: existing } = await db
+      .from("profiles")
+      .select("is_approved")
+      .eq("user_id", userId)
+      .single();
+    const wasAlreadyApproved = !!(existing as Record<string, unknown> | null)?.is_approved;
+
     await db.from("profiles").update({ is_approved: true } as never).eq("user_id", userId);
+
+    // Grant signup credits from the user's active subscription, period-scaled.
+    // included_credits is admin-configurable per plan and may be 0 — in that
+    // case we skip silently. Failures here MUST NOT roll back the approval
+    // itself; we log and continue.
+    if (!wasAlreadyApproved) {
+      try {
+        const { data: subRow } = await db
+          .from("user_subscriptions")
+          .select("period_type, plans!inner(name, included_credits)")
+          .eq("user_id", userId)
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const sub = (subRow as Record<string, unknown> | null) || null;
+        if (sub) {
+          const plan = sub.plans as Record<string, unknown> | undefined;
+          const baseCredits = Number(plan?.included_credits || 0);
+          const periodType = String(sub.period_type || "monthly");
+          const months = periodType === "yearly" ? 12 : periodType === "half_yearly" ? 6 : 1;
+          const credits = baseCredits * months;
+          const planName = String(plan?.name || "Plan");
+
+          if (credits > 0) {
+            const { error: rpcErr } = await db.rpc("adjust_user_points", {
+              p_user_id: userId,
+              p_delta: credits,
+              p_action: "milestone",
+              p_description: `Signup credits — ${planName} (${periodType})`,
+              p_reference_type: "signup_grant",
+              p_reference_id: session.user.id,
+            } as never);
+            if (rpcErr) {
+              console.error("[approveUser] credit grant failed", rpcErr);
+            } else {
+              await db.from("notifications").insert({
+                user_id: userId,
+                type: "points_earned",
+                title: "Welcome credits awarded",
+                message: `You received ${credits.toFixed(2)} credits with your ${planName} (${periodType}) subscription.`,
+                data: { amount: credits, plan_name: planName, period_type: periodType, reason: "signup_grant" },
+              } as never);
+              await recordAudit(db, session.user.id, "signup_credits_granted", "user", userId, {
+                amount: credits,
+                plan_name: planName,
+                period_type: periodType,
+                base_credits: baseCredits,
+                months,
+              });
+            }
+          }
+        }
+      } catch (creditErr) {
+        console.error("[approveUser] signup credit flow errored", creditErr);
+        // swallow — approval already succeeded
+      }
+    }
 
     // In-app notification + welcome-back email
     const { data: u } = await db.from("users").select("email, name").eq("id", userId).single();
@@ -665,7 +740,7 @@ export async function resendVerificationEmail(): Promise<ApiResponse> {
 export async function rejectUser(userId: string): Promise<ApiResponse> {
   try {
     const session = await auth();
-    if (!session?.user?.id || !["super_admin", "admin"].includes(session.user.role))
+    if (!session?.user?.id || !isStaffRole(session.user.role))
       return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();

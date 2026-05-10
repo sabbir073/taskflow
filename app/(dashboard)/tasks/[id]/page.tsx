@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { getTaskById } from "@/lib/actions/tasks";
 import { PageHeader } from "@/components/shared/page-header";
 import { TaskDetail } from "@/components/shared/task-detail";
 import { ItemGone } from "@/components/shared/item-gone";
 import { notFound } from "next/navigation";
-import type { UserRole } from "@/types/database";
 
 export const metadata: Metadata = { title: "Task Details" };
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
     );
   }
 
-  const isAdmin = (["super_admin", "admin"] as UserRole[]).includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   return (
     <div>

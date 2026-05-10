@@ -7,10 +7,12 @@ import { auth } from "@/auth";
 import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
 import { recordAudit } from "@/lib/audit";
 import { sendAdminContactMessageAlert } from "@/lib/email";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
+// Contact submissions are visible to staff (admin + moderator).
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 // ============================================================================
@@ -76,7 +78,7 @@ export async function submitContactForm(
       const { data: adminProfiles } = await db
         .from("profiles")
         .select("user_id")
-        .in("role", ["super_admin", "admin"]);
+        .in("role", STAFF_ROLES as readonly string[]);
       const adminIds = ((adminProfiles || []) as Record<string, unknown>[]).map(
         (a) => a.user_id as string
       );

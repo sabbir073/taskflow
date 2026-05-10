@@ -31,7 +31,7 @@ const navItems: NavItem[] = [
   { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Users", href: "/users", icon: UserCog, permission: "manage_users" },
-  { label: "Broadcast", href: "/broadcast", icon: Send, permission: "manage_users" },
+  { label: "Broadcast", href: "/broadcast", icon: Send, permission: "broadcast" },
   { label: "Contact Messages", href: "/contact-messages", icon: Mail, permission: "manage_users" },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },

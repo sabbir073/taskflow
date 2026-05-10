@@ -2,10 +2,13 @@
 
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { isStaffRole } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
+// Invoices are viewable by staff (admin + moderator) per the moderator
+// permissions matrix (manage_payments).
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 // ============================================================================

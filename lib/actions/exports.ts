@@ -2,10 +2,13 @@
 
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { isStaffRole } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
+// Exports are staff-allowed (admin + moderator) per the user-management
+// permissions for moderator.
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 // CSV builder — escapes per RFC 4180. Any cell with a comma, double-quote, or

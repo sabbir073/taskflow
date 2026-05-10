@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { getGroupById } from "@/lib/actions/groups";
 import { PageHeader } from "@/components/shared/page-header";
 import { GroupDetail } from "@/components/shared/group-detail";
 import { ItemGone } from "@/components/shared/item-gone";
 import { notFound } from "next/navigation";
-import type { UserRole } from "@/types/database";
 
 export const metadata: Metadata = { title: "Group Details" };
 
@@ -27,7 +27,7 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ id
     );
   }
 
-  const isAdmin = (["super_admin", "admin"] as UserRole[]).includes(user.role);
+  const isAdmin = isStaffRole(user.role);
 
   return (
     <div>

@@ -4,10 +4,13 @@ import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { escapePgLikeOr } from "@/lib/utils";
+import { isStaffRole } from "@/lib/constants/roles";
 import type { ApiResponse } from "@/types";
 
+// Broadcasts are gated to staff (admin + moderator) per the moderator
+// permissions matrix. Kept as a local alias so existing callers don't change.
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 const broadcastSchema = z.object({

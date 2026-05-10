@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isStaffRole } from "@/lib/constants/roles";
 import { PageHeader } from "@/components/shared/page-header";
 import { TicketDetailView } from "@/components/shared/ticket-detail-view";
 
@@ -17,7 +18,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
       <TicketDetailView
         ticketId={ticketId}
         currentUserId={user.id}
-        isAdmin={["super_admin", "admin"].includes(user.role)}
+        isAdmin={isStaffRole(user.role)}
       />
     </div>
   );

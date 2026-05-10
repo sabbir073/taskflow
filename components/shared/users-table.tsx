@@ -16,7 +16,10 @@ import type { UserRole, UserStatus } from "@/types/database";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "error"> = { active: "success", suspended: "warning", banned: "error" };
 
-export function UsersTable() {
+export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
+  // Moderators cannot promote anyone to admin/super_admin (privilege
+  // escalation guard) — hide that option from the per-row action menu.
+  const canPromoteToAdmin = currentUserRole === "super_admin" || currentUserRole === "admin";
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -102,7 +105,7 @@ export function UsersTable() {
           <Input placeholder="Search by name or email..." className="pl-11" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
         <Select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }} className="sm:w-44">
-          <option value="">All Roles</option><option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="group_leader">Group Leader</option><option value="user">Member</option>
+          <option value="">All Roles</option><option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="moderator">Moderator</option><option value="group_leader">Group Leader</option><option value="user">Member</option>
         </Select>
         <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="sm:w-44">
           <option value="">All Statuses</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="banned">Banned</option>
@@ -265,7 +268,10 @@ export function UsersTable() {
                 </>
               )}
               <div className="border-t border-border/50 my-1" />
-              <button onClick={() => { setRoleChangeTarget({ userId, role: "admin", label: "Make Admin", description: "Promote this user to Admin? Admins can manage users, tasks, plans, and most system settings." }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Admin</button>
+              {canPromoteToAdmin && (
+                <button onClick={() => { setRoleChangeTarget({ userId, role: "admin", label: "Make Admin", description: "Promote this user to Admin? Admins can manage users, tasks, plans, and most system settings." }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Admin</button>
+              )}
+              <button onClick={() => { setRoleChangeTarget({ userId, role: "moderator", label: "Make Moderator", description: "Promote this user to Moderator? Moderators can manage users, tasks, payments, and approve signups, but cannot change system settings." }); setOpenMenu(null); }} className={itemCls}><Shield className={`${iconCls} text-muted-foreground`} /> Make Moderator</button>
               <button onClick={() => { setRoleChangeTarget({ userId, role: "group_leader", label: "Make Group Leader", description: "Promote this user to Group Leader? Group Leaders can manage their own groups and members." }); setOpenMenu(null); }} className={itemCls}><UsersIcon className={`${iconCls} text-muted-foreground`} /> Make Group Leader</button>
               <button onClick={() => { setRoleChangeTarget({ userId, role: "user", label: "Make Member", description: "Demote this user to a regular Member? They will lose any elevated permissions." }); setOpenMenu(null); }} className={itemCls}><UserCheck className={`${iconCls} text-muted-foreground`} /> Make Member</button>
               {status === "active" ? (

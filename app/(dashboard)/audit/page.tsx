@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { requireRole } from "@/lib/auth-helpers";
+import { ADMIN_ROLES } from "@/lib/constants/roles";
 import { PageHeader } from "@/components/shared/page-header";
 import { AuditLogView } from "@/components/shared/audit-log-view";
 
 export const metadata: Metadata = { title: "Audit Log" };
 
 export default async function AuditPage() {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(ADMIN_ROLES);
 
   return (
     <div>

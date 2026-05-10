@@ -4,10 +4,12 @@ import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { sendTicketReplyEmail } from "@/lib/email";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
+// Support tickets are handled by staff (admin + moderator).
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 const TICKET_CATEGORIES = ["general", "billing", "technical", "account", "feature_request", "other"] as const;
@@ -106,7 +108,7 @@ export async function createTicket(formData: z.infer<typeof createTicketSchema>)
     if (error || !ticket) return { success: false, error: "Failed to create ticket" };
 
     // Notify admins
-    const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+    const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
     const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
     if (adminIds.length > 0) {
       const userName = session.user.name || "A user";
@@ -272,7 +274,7 @@ export async function replyToTicket(
       }
     } else if (!admin) {
       // Notify admins that user replied
-      const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+      const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
       const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
       if (adminIds.length > 0) {
         const notifs = adminIds.map((uid) => ({

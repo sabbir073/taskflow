@@ -44,7 +44,7 @@ INSERT INTO task_types (platform_id, name, slug, required_fields, proof_type, de
 
 -- YouTube tasks
 INSERT INTO task_types (platform_id, name, slug, required_fields, proof_type, default_points) VALUES
-  (5, 'Watch Video', 'watch-video', '[{"name":"video_url","label":"Video URL","type":"url","required":true},{"name":"watch_duration","label":"Watch Duration (min)","type":"number","required":true}]', 'screenshot', 15),
+  (5, 'Watch Video', 'watch-video', '[{"name":"video_url","label":"Video URL","type":"url","required":true}]', 'none', 15),
   (5, 'Like Video', 'like-video', '[{"name":"video_url","label":"Video URL","type":"url","required":true}]', 'screenshot', 5),
   (5, 'Comment on Video', 'comment-video', '[{"name":"video_url","label":"Video URL","type":"url","required":true},{"name":"comment","label":"Comment","type":"textarea","required":true}]', 'screenshot', 15),
   (5, 'Subscribe', 'subscribe', '[{"name":"channel_url","label":"Channel URL","type":"url","required":true}]', 'screenshot', 10);

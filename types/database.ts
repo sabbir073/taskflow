@@ -1,12 +1,12 @@
 // ===== Enum Types =====
 
-export type UserRole = "super_admin" | "admin" | "group_leader" | "user";
+export type UserRole = "super_admin" | "admin" | "moderator" | "group_leader" | "user";
 export type UserStatus = "active" | "suspended" | "banned";
 export type TaskStatus = "draft" | "pending" | "in_progress" | "submitted" | "approved" | "rejected";
 export type TaskPriority = "low" | "medium" | "high";
 export type GroupPrivacy = "public" | "private";
 export type RecurringType = "daily" | "weekly" | "monthly";
-export type ProofType = "url" | "screenshot" | "both";
+export type ProofType = "url" | "screenshot" | "both" | "none";
 export type AssignmentStatus = "pending" | "in_progress" | "submitted" | "approved" | "rejected";
 export type AssignmentTarget = "all_users" | "group" | "individual";
 export type GroupMemberRole = "leader" | "member";

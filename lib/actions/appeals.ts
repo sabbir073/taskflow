@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { sendAppealApprovedEmail, sendAppealRejectedEmail } from "@/lib/email";
+import { isAdminRole as checkAdminRole, ADMIN_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 const appealSchema = z.object({
@@ -15,8 +16,9 @@ const appealSchema = z.object({
   accepted_terms: z.literal(true, { message: "You must accept the terms" }),
 });
 
+// Appeals are admin-only — moderators are deliberately excluded.
 function isAdminRole(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return checkAdminRole(role);
 }
 
 // Fast status check — polled by the client to detect live suspension / reactivation
@@ -109,7 +111,7 @@ export async function submitAppeal(formData: {
     if (error) return { success: false, error: "Failed to submit appeal" };
 
     // Notify all admins
-    const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+    const { data: admins } = await db.from("profiles").select("user_id").in("role", ADMIN_ROLES as readonly string[]);
     const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
     if (adminIds.length > 0) {
       const userName = session.user.name || "A suspended user";

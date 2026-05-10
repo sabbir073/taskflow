@@ -14,12 +14,14 @@ import { generateInvoicePdfBuffer } from "@/lib/pdf/invoice";
 import { computeRemainingQuota } from "@/lib/subscription-check";
 import { recordAudit } from "@/lib/audit";
 import { checkRate, formatRetryAfter } from "@/lib/rate-limit";
+import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 type DB = ReturnType<typeof getServerClient>;
 
+// Payments are managed by staff (admin + moderator).
 function isAdmin(role: string | undefined): boolean {
-  return ["super_admin", "admin"].includes(role || "");
+  return isStaffRole(role);
 }
 
 async function notifyAdmins(
@@ -29,7 +31,7 @@ async function notifyAdmins(
   link: string,
   data: Record<string, unknown> = {}
 ) {
-  const { data: admins } = await db.from("profiles").select("user_id").in("role", ["super_admin", "admin"]);
+  const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
   const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
   if (adminIds.length === 0) return;
   const notifs = adminIds.map((uid) => ({
@@ -47,7 +49,7 @@ async function getAdminEmails(db: DB): Promise<string[]> {
   const { data: admins } = await db
     .from("users")
     .select("email, profiles!inner(role)")
-    .in("profiles.role", ["super_admin", "admin"]);
+    .in("profiles.role", STAFF_ROLES as readonly string[]);
   return ((admins || []) as Record<string, unknown>[])
     .map((a) => a.email as string)
     .filter((e) => !!e);

@@ -11,6 +11,8 @@ import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { UserProfileModal } from "./user-profile-modal";
 import { RichTextContent } from "./rich-text-content";
+import { YoutubeWatchModal } from "./youtube-watch-modal";
+import { Play } from "lucide-react";
 
 interface Props {
   data: { task: Record<string, unknown>; assignments: Record<string, unknown>[] };
@@ -135,7 +137,7 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
         </Card>
 
         {/* Show proof section for anyone who has an assignment */}
-        <MyProofSection taskId={task.id as number} proofType={proofType} />
+        <MyProofSection task={task} proofType={proofType} />
 
         {canViewSubmissions && (
           <Card>
@@ -190,17 +192,25 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
             <TaskDataFields
               taskData={(task.task_data as Record<string, string>) || {}}
               fieldDefs={(taskType?.required_fields as Array<{ name: string; label: string; type: string }>) || []}
+              hideKeys={
+                // Watch-video tasks must not leak the YouTube URL to assignees —
+                // they only see the in-app player. Staff/owners still see it.
+                String(taskType?.slug || "") === "watch-video" && !canViewSubmissions
+                  ? ["video_url"]
+                  : []
+              }
             />
           </CardContent>
         </Card>
         <Card>
           <CardContent>
             <h4 className="text-sm font-semibold mb-1">Proof Required</h4>
-            <Badge variant="primary" className="mt-1 capitalize">{proofType}</Badge>
+            <Badge variant="primary" className="mt-1 capitalize">{proofType === "none" ? "Auto" : proofType}</Badge>
             <p className="text-xs text-muted-foreground mt-2">
               {proofType === "url" && "Submit the URL of your completed action"}
               {proofType === "screenshot" && "Upload a screenshot as proof"}
               {proofType === "both" && "Submit both a URL and screenshot"}
+              {proofType === "none" && "No proof required — submission is recorded automatically when you complete the action."}
             </p>
           </CardContent>
         </Card>
@@ -214,15 +224,18 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
 function TaskDataFields({
   taskData,
   fieldDefs,
+  hideKeys = [],
 }: {
   taskData: Record<string, string>;
   fieldDefs: Array<{ name: string; label: string; type: string }>;
+  hideKeys?: string[];
 }) {
   // Merge: definition order first, then any extra keys from task_data
   const defMap = new Map(fieldDefs.map((f) => [f.name, f]));
+  const hidden = new Set(hideKeys);
   const orderedKeys: string[] = [
-    ...fieldDefs.map((f) => f.name).filter((n) => taskData[n] !== undefined && taskData[n] !== ""),
-    ...Object.keys(taskData).filter((k) => !defMap.has(k) && taskData[k] !== undefined && taskData[k] !== ""),
+    ...fieldDefs.map((f) => f.name).filter((n) => !hidden.has(n) && taskData[n] !== undefined && taskData[n] !== ""),
+    ...Object.keys(taskData).filter((k) => !hidden.has(k) && !defMap.has(k) && taskData[k] !== undefined && taskData[k] !== ""),
   ];
 
   if (orderedKeys.length === 0) {
@@ -260,7 +273,8 @@ function TaskDataFields({
 }
 
 // Client-side component that fetches the user's assignment and renders ProofSection
-function MyProofSection({ taskId, proofType }: { taskId: number; proofType: string }) {
+function MyProofSection({ task, proofType }: { task: Record<string, unknown>; proofType: string }) {
+  const taskId = task.id as number;
   const [assignment, setAssignment] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -283,10 +297,10 @@ function MyProofSection({ taskId, proofType }: { taskId: number; proofType: stri
 
   if (!assignment) return null; // User has no assignment for this task
 
-  return <ProofSection assignment={assignment} proofType={proofType} onRefresh={() => setRefreshKey((k) => k + 1)} />;
+  return <ProofSection assignment={assignment} task={task} proofType={proofType} onRefresh={() => setRefreshKey((k) => k + 1)} />;
 }
 
-function ProofSection({ assignment, proofType, onRefresh }: { assignment: Record<string, unknown>; proofType: string; onRefresh?: () => void }) {
+function ProofSection({ assignment, task, proofType, onRefresh }: { assignment: Record<string, unknown>; task: Record<string, unknown>; proofType: string; onRefresh?: () => void }) {
   const status = String(assignment.status);
   const acceptTask = useAcceptTask();
   const submitProof = useSubmitProof();
@@ -295,6 +309,16 @@ function ProofSection({ assignment, proofType, onRefresh }: { assignment: Record
   const [proofNotes, setProofNotes] = useState("");
   const [uploading, setUploading] = useState(false);
   const [newUrl, setNewUrl] = useState("");
+  const [showYoutube, setShowYoutube] = useState(false);
+
+  // YouTube auto-watch path: enabled when the task type is "watch-video"
+  // (regardless of proof_type — admins may have created tasks before the
+  // proof_type=none migration ran). The submission auto-fires on the
+  // YouTube IFrame API ENDED state.
+  const taskType = task.task_types as Record<string, unknown> | undefined;
+  const taskData = (task.task_data as Record<string, string>) || {};
+  const isWatchVideo = String(taskType?.slug || "") === "watch-video";
+  const videoUrl = taskData.video_url || "";
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -335,6 +359,52 @@ function ProofSection({ assignment, proofType, onRefresh }: { assignment: Record
       <Btn onClick={() => acceptTask.mutate(assignment.id as number, { onSuccess: () => onRefresh?.() })} isLoading={acceptTask.isPending}>Accept Task</Btn>
     </CardContent></Card>
   );
+
+  // YouTube watch-video flow — replaces the proof form. Submission is
+  // recorded automatically when the user watches the video to its end.
+  // Closing the player early does NOT submit.
+  if (isWatchVideo && videoUrl) {
+    return (
+      <>
+        <Card>
+          <CardHeader>
+            <CardTitle>Watch the video</CardTitle>
+            <CardDescription>
+              Click the button below to open the in-app player. You must watch the full video — closing it early will not count as completion.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {status === "rejected" && (
+              <p className="text-sm text-error">Previous attempt was rejected: {String(assignment.rejection_reason || "No reason")}. Watch the video again to resubmit.</p>
+            )}
+            <Btn className="w-full" onClick={() => setShowYoutube(true)} isLoading={submitProof.isPending}>
+              <Play className="w-4 h-4 mr-2" /> View Video
+            </Btn>
+          </CardContent>
+        </Card>
+        {showYoutube && (
+          <YoutubeWatchModal
+            videoUrl={videoUrl}
+            onClose={() => setShowYoutube(false)}
+            onCompleted={() => {
+              setShowYoutube(false);
+              submitProof.mutate(
+                {
+                  assignmentId: assignment.id as number,
+                  data: {
+                    proof_urls: [],
+                    proof_screenshots: [],
+                    proof_notes: "Auto-submitted: video watched to completion",
+                  },
+                },
+                { onSuccess: () => onRefresh?.() }
+              );
+            }}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <Card>
