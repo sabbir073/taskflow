@@ -107,18 +107,39 @@ export function YoutubeWatchModal({
 
   const videoId = extractYouTubeId(videoUrl);
 
-  // Mount + create player
+  // Mount + create player.
+  //
+  // CRITICAL: YouTube's IFrame API REPLACES whatever DOM node we pass it
+  // with its own <iframe>. If we hand it `containerRef.current` (a node
+  // React owns), React's reconciler still thinks the original div is its
+  // child and later throws "Failed to execute 'insertBefore' on 'Node'"
+  // during unmount. The fix is to create an inner placeholder div via
+  // `document.createElement` and let YT replace THAT — React only ever
+  // sees the outer container, which YT never touches.
   useEffect(() => {
     if (!videoId) {
       setLoadState("error");
       return;
     }
 
+    const container = containerRef.current;
+    if (!container) return;
+
     let cancelled = false;
+    let mountedNode: HTMLDivElement | null = null;
+
     loadYouTubeAPI()
       .then(() => {
-        if (cancelled || !containerRef.current || !window.YT?.Player) return;
-        playerRef.current = new window.YT.Player(containerRef.current, {
+        if (cancelled || !window.YT?.Player) return;
+
+        // Inner placeholder that YT.Player will swap for its iframe.
+        // Owned outside React's tree — we add and remove it ourselves.
+        mountedNode = document.createElement("div");
+        mountedNode.style.width = "100%";
+        mountedNode.style.height = "100%";
+        container.appendChild(mountedNode);
+
+        playerRef.current = new window.YT.Player(mountedNode, {
           videoId,
           playerVars: {
             // Lock down the chrome — controls hidden, no related, no kbd, no fs
@@ -134,6 +155,7 @@ export function YoutubeWatchModal({
           },
           events: {
             onReady: (e: YTPlayerEvent) => {
+              if (cancelled) return;
               setLoadState("ready");
               try {
                 e.target.setVolume(volume);
@@ -149,7 +171,9 @@ export function YoutubeWatchModal({
                 onCompleted();
               }
             },
-            onError: () => setLoadState("error"),
+            onError: () => {
+              if (!cancelled) setLoadState("error");
+            },
           },
         });
       })
@@ -159,12 +183,23 @@ export function YoutubeWatchModal({
 
     return () => {
       cancelled = true;
+      // Destroy BEFORE we touch the DOM so the SDK stops postMessaging.
       try {
         playerRef.current?.destroy();
       } catch {
         /* noop */
       }
       playerRef.current = null;
+      // After destroy(), YT removes its iframe, but if anything is left
+      // behind (mountedNode still attached, or the iframe stayed), strip
+      // it ourselves so React's reconciliation has a clean slate.
+      try {
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+      } catch {
+        /* noop */
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
