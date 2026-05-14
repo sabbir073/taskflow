@@ -77,7 +77,7 @@ export function TaskForm() {
     },
   });
 
-  const { fields, append, remove, update } = useFieldArray({ control, name: "items" });
+  const { fields, append, remove, update, replace } = useFieldArray({ control, name: "items" });
 
   // useWatch instead of `watch()` so React Compiler can memoize children
   // that consume these values (RichTextEditor + the submit button stay
@@ -91,15 +91,30 @@ export function TaskForm() {
 
   const isIndividual = watchTargetType === "individual";
 
+  // Mirror the form's platform_id into local state so useTaskTypes refetches
+  // when the user picks a different platform. The actual items[] clear is
+  // done synchronously in the platform-Select onChange (see below) — not
+  // here — so there's no brief render where items[] still references
+  // task_type_ids from the old platform.
   useEffect(() => {
     if (watchPlatform && watchPlatform !== selectedPlatformId) {
       setSelectedPlatformId(watchPlatform);
-      // Switching platform clears the items list because task types are
-      // scoped to platform.
-      while (fields.length > 0) remove(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchPlatform]);
+
+  // Register platform_id so validation + form state still work, then wrap
+  // its onChange to (a) clear items[] and (b) flip local selectedPlatformId
+  // in the same event tick. React batches all three updates into one
+  // render, so the next paint never shows items[] from the previous
+  // platform OR the previous platform's checkboxes after the user picked
+  // a new one.
+  const platformReg = register("platform_id", { required: "Required", valueAsNumber: true });
+  function handlePlatformChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    platformReg.onChange(e);
+    replace([]);
+    setSelectedPlatformId(e.target.value ? Number(e.target.value) : null);
+  }
 
   // Per-completion cost = sum of item points + completion bonus.
   const itemsPointsSum = useMemo(
@@ -209,7 +224,11 @@ export function TaskForm() {
 
           <div className="space-y-1.5">
             <Label>Platform *</Label>
-            <Select {...register("platform_id", { required: "Required", valueAsNumber: true })} error={!!errors.platform_id}>
+            <Select
+              {...platformReg}
+              onChange={handlePlatformChange}
+              error={!!errors.platform_id}
+            >
               <option value="">Select platform</option>
               {platforms?.map((p) => <option key={p.id as number} value={p.id as number}>{PLATFORM_CONFIG[(p.slug as string) as keyof typeof PLATFORM_CONFIG]?.name || (p.name as string)}</option>)}
             </Select>

@@ -190,7 +190,6 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
             assignment={myAssignment}
             items={myItemSubmissions}
             completionBonus={completionBonus}
-            taskId={taskId}
           />
         ) : null}
 
@@ -295,12 +294,10 @@ function BundleProofSection({
   assignment,
   items,
   completionBonus,
-  taskId,
 }: {
   assignment: Record<string, unknown>;
   items: ItemSubmission[];
   completionBonus: number;
-  taskId: number;
 }) {
   const status = String(assignment.status);
   const acceptTask = useAcceptTask();
@@ -370,7 +367,6 @@ function BundleProofSection({
               itemSubmission={it}
               itemIndex={idx + 1}
               totalItems={totalCount}
-              taskId={taskId}
             />
           ))
         )}
@@ -386,12 +382,10 @@ function BundleItemRow({
   itemSubmission,
   itemIndex,
   totalItems,
-  taskId,
 }: {
   itemSubmission: ItemSubmission;
   itemIndex: number;
   totalItems: number;
-  taskId: number;
 }) {
   const item = itemSubmission.task_bundle_items as BundleItem | undefined;
   const status = String(itemSubmission.status);
@@ -403,6 +397,18 @@ function BundleItemRow({
   const videoUrl = item?.item_data?.video_url || "";
   const watchSec = item?.watch_duration_sec ?? null;
   const isWatchVideo = slug === "watch-video";
+  // Per-item content the admin configured (URL to like, comment text, etc).
+  // We render these inline above the proof form so the worker sees the
+  // "what to do" data + "how to submit" form in one place — important on
+  // mobile where the right-column sidebar appears far below.
+  const itemData: Record<string, string> = (item?.item_data as Record<string, string>) || {};
+  const fieldDefs = (taskType?.required_fields as Array<{ name: string; label: string; type: string }> | undefined) || [];
+  // Hide the YouTube URL — the View Video button is the only sanctioned way
+  // for the worker to open the video.
+  const inlineHideKeys = isWatchVideo ? ["video_url"] : [];
+  const hasItemData = Object.keys(itemData).some(
+    (k) => !inlineHideKeys.includes(k) && itemData[k] !== undefined && itemData[k] !== ""
+  );
 
   const submitItemProof = useSubmitItemProof();
   const [showVideo, setShowVideo] = useState(false);
@@ -446,6 +452,22 @@ function BundleItemRow({
         <span className="text-xs font-mono text-primary shrink-0">+{itemPoints.toFixed(2)} pts</span>
         <div className="shrink-0">{statusPill}</div>
       </div>
+
+      {/* Item content the admin configured — what the worker actually has
+          to do for THIS item. Visible while there's something to do; we
+          hide it on approved/cancelled rows since the work is done. */}
+      {hasItemData && status !== "approved" && status !== "cancelled" && (
+        <div className="px-4 pt-3 pb-1 bg-muted/10 border-b border-border/30">
+          <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1.5">
+            Action details
+          </p>
+          <TaskDataFields
+            taskData={itemData}
+            fieldDefs={fieldDefs}
+            hideKeys={inlineHideKeys}
+          />
+        </div>
+      )}
 
       {/* Body switches on status */}
       <div className="px-4 py-3 space-y-3">
@@ -564,8 +586,6 @@ function BundleItemRow({
           )
         )}
       </div>
-      {/* Suppress react/no-unused-vars on taskId; the Watch button propagates it implicitly via the modal route. */}
-      {false && <span hidden>{taskId}</span>}
     </div>
   );
 }
