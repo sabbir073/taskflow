@@ -5,14 +5,15 @@ import { useRouter } from "next/navigation";
 import { useForm, useWatch, useFieldArray } from "react-hook-form";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, FieldError, Select, Textarea, Btn, Badge } from "@/components/ui";
 import { usePlatforms, useTaskTypes, useCreateTask } from "@/hooks/use-tasks";
-import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { PLATFORM_CONFIG, MUSIC_STREAM_SLUGS } from "@/lib/constants/platforms";
 import { RichTextEditor } from "@/components/shared/rich-text-editor";
+import { ImageUploadField } from "@/components/shared/image-upload-field";
 import { getMyBalance } from "@/lib/actions/users";
 import { useAssignableGroups } from "@/hooks/use-groups";
 import { taskTypeNeedsAiPrompt } from "@/lib/content-task-types";
 import type { TaskFormData } from "@/types";
 import type { ProofType } from "@/types/database";
-import { Coins, AlertCircle, Upload, X, Link2, Plus, Mail, Sparkles, Trophy } from "lucide-react";
+import { Coins, AlertCircle, X, Link2, Plus, Mail, Sparkles, Trophy } from "lucide-react";
 
 type TaskTypeRow = {
   id: number;
@@ -41,26 +42,8 @@ export function TaskForm() {
   const [taskImages, setTaskImages] = useState<string[]>([]);
   const [taskUrls, setTaskUrls] = useState<string[]>([]);
   const [newUrl, setNewUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
 
   useEffect(() => { getMyBalance().then(setBalance); }, []);
-
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files) return;
-    setUploading(true);
-    for (const file of Array.from(files)) {
-      const formData = new FormData();
-      formData.append("file", file);
-      try {
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        const data = await res.json();
-        if (data.url) setTaskImages((prev) => [...prev, data.url]);
-      } catch { /* ignore */ }
-    }
-    setUploading(false);
-    e.target.value = "";
-  }
 
   const { register, handleSubmit, watch, control, setValue, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: {
@@ -179,12 +162,16 @@ export function TaskForm() {
     if (existingIdx >= 0) {
       remove(existingIdx);
     } else {
+      const isWatchOrStream = tt.slug === "watch-video" || MUSIC_STREAM_SLUGS.has(tt.slug);
+      // Bandcamp's "stream-full-track" defaults to 180s (full song); every
+      // other watch/stream task defaults to 30s.
+      const defaultDuration = tt.slug === "stream-full-track" ? 180 : WATCH_VIDEO_DEFAULT_SEC;
       append({
         task_type_id: tt.id,
         points: tt.default_points || 0,
         proof_type: tt.proof_type,
         item_data: {},
-        watch_duration_sec: tt.slug === "watch-video" ? WATCH_VIDEO_DEFAULT_SEC : null,
+        watch_duration_sec: isWatchOrStream ? defaultDuration : null,
       });
     }
   }
@@ -256,6 +243,8 @@ export function TaskForm() {
                 const idx = fields.findIndex((f) => Number(f.task_type_id) === tt.id);
                 const selected = idx >= 0;
                 const isWatchVideo = tt.slug === "watch-video";
+                const isMusicStream = MUSIC_STREAM_SLUGS.has(tt.slug);
+                const needsDuration = isWatchVideo || isMusicStream;
                 return (
                   <div key={tt.id} className={`rounded-xl border ${selected ? "border-primary/40 bg-primary/[0.03]" : "border-border/60"}`}>
                     {/* Header row — checkbox + name + points stepper */}
@@ -309,9 +298,9 @@ export function TaskForm() {
                               <option value="none">None (auto)</option>
                             </Select>
                           </div>
-                          {isWatchVideo && (
+                          {needsDuration && (
                             <div className="space-y-1.5">
-                              <Label className="text-xs">Watch Duration (seconds) *</Label>
+                              <Label className="text-xs">{isMusicStream ? "Play Duration (seconds) *" : "Watch Duration (seconds) *"}</Label>
                               <Input
                                 type="number"
                                 min={1}
@@ -319,7 +308,11 @@ export function TaskForm() {
                                 {...register(`items.${idx}.watch_duration_sec`, { valueAsNumber: true })}
                                 className="h-9 text-sm"
                               />
-                              <p className="text-[10px] text-muted-foreground">Worker must watch this many seconds for auto-submit</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {isMusicStream
+                                  ? "Worker must keep playing for this many seconds (fullscreen lock + tab-focus reset)"
+                                  : "Worker must watch this many seconds for auto-submit"}
+                              </p>
                             </div>
                           )}
                         </div>
@@ -327,25 +320,46 @@ export function TaskForm() {
                         {tt.required_fields && tt.required_fields.length > 0 && (
                           <div className="space-y-2 pt-2 border-t border-border/30">
                             <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Action data (shown to workers)</p>
-                            {tt.required_fields.map((field) => (
-                              <div key={field.name} className="space-y-1">
-                                <Label className="text-xs">{field.label}</Label>
-                                {field.type === "textarea" ? (
-                                  <Textarea
-                                    {...register(`items.${idx}.item_data.${field.name}`)}
-                                    placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-                                    rows={3}
-                                  />
-                                ) : (
-                                  <Input
-                                    {...register(`items.${idx}.item_data.${field.name}`)}
-                                    type={field.type === "url" ? "url" : field.type === "number" ? "number" : "text"}
-                                    placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-                                    className="h-9 text-sm"
-                                  />
-                                )}
-                              </div>
-                            ))}
+                            {tt.required_fields.map((field) => {
+                              const fieldPath = `items.${idx}.item_data.${field.name}` as const;
+                              if (field.type === "image") {
+                                // Image fields use the shared S3 multi-image
+                                // uploader. Workers see thumbnails + Download
+                                // buttons on the task page.
+                                const current = (watchItems?.[idx]?.item_data?.[field.name] ?? []) as string | string[];
+                                return (
+                                  <div key={field.name}>
+                                    <ImageUploadField
+                                      label={field.label}
+                                      value={current}
+                                      onChange={(next) => setValue(fieldPath, next, { shouldDirty: true })}
+                                      multiple
+                                      maxImages={6}
+                                      helperText="Workers can download these images from the task page."
+                                    />
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={field.name} className="space-y-1">
+                                  <Label className="text-xs">{field.label}</Label>
+                                  {field.type === "textarea" ? (
+                                    <Textarea
+                                      {...register(fieldPath)}
+                                      placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                                      rows={3}
+                                    />
+                                  ) : (
+                                    <Input
+                                      {...register(fieldPath)}
+                                      type={field.type === "url" ? "url" : field.type === "number" ? "number" : "text"}
+                                      placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                                      className="h-9 text-sm"
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -392,28 +406,13 @@ export function TaskForm() {
           <CardDescription>Add reference images and URLs (optional)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Images */}
-          <div className="space-y-2">
-            <Label>Images</Label>
-            {taskImages.length > 0 && (
-              <div className="grid grid-cols-4 gap-2">
-                {taskImages.map((url, i) => (
-                  <div key={i} className="relative group rounded-xl overflow-hidden border border-border">
-                    <img src={url} alt="" className="w-full h-20 object-cover" />
-                    <button type="button" onClick={() => setTaskImages(taskImages.filter((_, j) => j !== i))}
-                      className="absolute top-1 right-1 w-5 h-5 bg-error text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/40 transition-colors">
-              <Upload className="w-5 h-5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{uploading ? "Uploading..." : "Click to upload images"}</span>
-              <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
-            </label>
-          </div>
+          <ImageUploadField
+            label="Images"
+            value={taskImages}
+            onChange={setTaskImages}
+            multiple
+            maxImages={8}
+          />
 
           {/* URLs */}
           <div className="space-y-2">

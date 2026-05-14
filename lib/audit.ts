@@ -26,7 +26,8 @@ export type AuditAction =
   | "assign_plan"
   | "signup_credits_granted"
   | "contact_update"
-  | "contact_delete";
+  | "contact_delete"
+  | "platform_toggled";
 
 export type AuditTargetType =
   | "user"
@@ -35,7 +36,8 @@ export type AuditTargetType =
   | "group"
   | "plan"
   | "subscription"
-  | "contact_submission";
+  | "contact_submission"
+  | "platform";
 
 // Fire-and-forget audit log writer. The originating action MUST NOT fail if
 // the audit insert errors — audit is strictly forensic. Swallow everything.

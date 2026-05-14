@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, Input, Btn } from "@/components/ui";
 import { updateSetting } from "@/lib/actions/settings";
+import { useAllPlatformsForAdmin, useSetPlatformActive } from "@/hooks/use-tasks";
+import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -12,6 +14,7 @@ const CATEGORIES = [
   { key: "notifications", label: "Notifications" },
   { key: "security", label: "Security" },
   { key: "points", label: "Points" },
+  { key: "platforms", label: "Platforms" },
 ];
 
 // Unwrap JSONB values: "\"TaskMOS\"" -> "TaskMOS", true -> true
@@ -79,6 +82,9 @@ export function SettingsView({ initialSettings }: { initialSettings: Record<stri
         ))}
       </nav>
       <div className="flex-1">
+        {activeTab === "platforms" ? (
+          <PlatformsSettings />
+        ) : (
         <Card>
           <CardHeader><CardTitle className="capitalize">{activeTab} Settings</CardTitle></CardHeader>
           <CardContent>
@@ -136,7 +142,70 @@ export function SettingsView({ initialSettings }: { initialSettings: Record<stri
             )}
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
+  );
+}
+
+// Admin-only: list every platform (incl. disabled) with a toggle that flips
+// platforms.is_active. Disabled platforms vanish from getPlatforms() so the
+// create-task picker no longer offers them; existing tasks on the platform
+// keep working.
+function PlatformsSettings() {
+  const { data: platforms, isLoading } = useAllPlatformsForAdmin();
+  const setActive = useSetPlatformActive();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Platforms</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Toggle a platform off to hide it from the create-task picker. Existing tasks on disabled platforms keep working.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">Loading platforms…</p>
+        ) : (
+          <div className="space-y-1">
+            {(platforms || []).map((p) => {
+              const slug = String(p.slug);
+              const cfg = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
+              const name = cfg?.name || String(p.name);
+              const color = cfg?.color || "#999";
+              const isActive = !!p.is_active;
+              const id = p.id as number;
+              return (
+                <div key={id} className="flex items-center justify-between gap-4 py-3 px-4 rounded-xl hover:bg-muted/30 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{ backgroundColor: color }}
+                    >
+                      {name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">/{slug}</p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={isActive}
+                      disabled={setActive.isPending}
+                      onChange={(e) => setActive.mutate({ platformId: id, isActive: e.target.checked })}
+                    />
+                    <div className="w-10 h-6 bg-muted rounded-full peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:after:translate-x-4 after:shadow-sm" />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

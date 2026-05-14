@@ -7,8 +7,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Select, Textarea, Btn, FieldError, Badge } from "@/components/ui";
 import { updateTask } from "@/lib/actions/tasks";
 import { toast } from "sonner";
-import { Upload, X, Link2, Plus, Sparkles, AlertCircle, Trophy } from "lucide-react";
+import { X, Link2, Plus, Sparkles, AlertCircle, Trophy } from "lucide-react";
 import { RichTextEditor } from "@/components/shared/rich-text-editor";
+import { ImageUploadField } from "@/components/shared/image-upload-field";
 
 interface Props {
   task: Record<string, unknown>;
@@ -50,7 +51,6 @@ export function TaskEditForm({ task, taskId }: Props) {
   const [taskImages, setTaskImages] = useState<string[]>((task.images as string[]) || []);
   const [taskUrls, setTaskUrls] = useState<string[]>((task.urls as string[]) || []);
   const [newUrl, setNewUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
 
   const { register, handleSubmit, watch, control, setValue, formState: { errors } } = useForm<FormShape>({
     defaultValues: {
@@ -75,23 +75,6 @@ export function TaskEditForm({ task, taskId }: Props) {
   const perCompletionCost = itemsPointsSum + Number(watchBonus || 0);
   const effectiveBudget = isIndividual ? perCompletionCost : (watchBudget || 0);
   const maxCompletions = isIndividual ? 1 : (perCompletionCost > 0 ? Math.floor((watchBudget || 0) / perCompletionCost) : 0);
-
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files) return;
-    setUploading(true);
-    for (const file of Array.from(files)) {
-      const fd = new FormData();
-      fd.append("file", file);
-      try {
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        const data = await res.json();
-        if (data.url) setTaskImages((prev) => [...prev, data.url]);
-      } catch { /* */ }
-    }
-    setUploading(false);
-    e.target.value = "";
-  }
 
   function addUrl() {
     const v = newUrl.trim();
@@ -223,31 +206,13 @@ export function TaskEditForm({ task, taskId }: Props) {
           <CardDescription>Reference images and URLs (optional)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Images */}
-          <div className="space-y-2">
-            <Label>Images</Label>
-            {taskImages.length > 0 && (
-              <div className="grid grid-cols-4 gap-2">
-                {taskImages.map((url, i) => (
-                  <div key={i} className="relative group rounded-xl overflow-hidden border border-border">
-                    <img src={url} alt="" className="w-full h-20 object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setTaskImages(taskImages.filter((_, j) => j !== i))}
-                      className="absolute top-1 right-1 w-5 h-5 bg-error text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/40 transition-colors">
-              <Upload className="w-5 h-5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{uploading ? "Uploading..." : "Click to upload images"}</span>
-              <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
-            </label>
-          </div>
+          <ImageUploadField
+            label="Images"
+            value={taskImages}
+            onChange={setTaskImages}
+            multiple
+            maxImages={8}
+          />
 
           {/* URLs */}
           <div className="space-y-2">

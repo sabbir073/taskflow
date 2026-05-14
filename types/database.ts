@@ -159,9 +159,12 @@ export interface TaskBundleItem {
   sort_order: number;
   points: number;
   proof_type: ProofType;
-  item_data: Record<string, string>;
-  // Only meaningful when the joined task_types.slug === "watch-video".
-  // NULL means: fall back to legacy "wait for ENDED" behavior in the player.
+  // String for url/text/textarea/number fields; string[] for image fields
+  // (which are S3 multi-image uploads keyed by required_fields[].type === "image").
+  item_data: Record<string, string | string[]>;
+  // Only meaningful when the joined task_types.slug === "watch-video" or a
+  // music streaming slug (see MUSIC_STREAM_SLUGS). NULL means fall back to
+  // "wait for ENDED" behavior in the player.
   watch_duration_sec: number | null;
   created_at: string;
   updated_at: string;

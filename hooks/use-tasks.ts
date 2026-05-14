@@ -6,12 +6,33 @@ import {
   getMyTasks, acceptTask, submitProof, reviewAssignment, getPendingReviews,
   submitItemProof, reviewItemSubmission, getMyAssignmentForTaskWithItems, getPendingItemReviews,
 } from "@/lib/actions/assignments";
-import { getPlatforms, getTaskTypesByPlatform } from "@/lib/actions/platforms";
+import { getPlatforms, getTaskTypesByPlatform, getAllPlatformsForAdmin, setPlatformActive } from "@/lib/actions/platforms";
 import { toast } from "sonner";
 import type { PaginationParams } from "@/types";
 
 export function usePlatforms() {
   return useQuery({ queryKey: ["platforms"], queryFn: getPlatforms });
+}
+
+// Admin-only: every platform including disabled ones. Used by the
+// /settings Platforms toggle list.
+export function useAllPlatformsForAdmin() {
+  return useQuery({ queryKey: ["platforms-admin"], queryFn: getAllPlatformsForAdmin });
+}
+
+export function useSetPlatformActive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ platformId, isActive }: { platformId: number; isActive: boolean }) =>
+      setPlatformActive(platformId, isActive),
+    onSuccess: (r) => {
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["platforms"] });
+        qc.invalidateQueries({ queryKey: ["platforms-admin"] });
+      } else toast.error(r.error);
+    },
+  });
 }
 
 export function useTaskTypes(platformId: number | null) {

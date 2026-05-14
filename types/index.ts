@@ -59,8 +59,11 @@ export interface TaskBundleItemInput {
   task_type_id: number;
   points: number;
   proof_type: import("./database").ProofType;
-  item_data: Record<string, string>;
-  // Only meaningful for the watch-video task type. seconds.
+  // String for url/text/textarea/number fields; string[] for image fields
+  // (multi-image S3 upload). The form normalises image fields to string[]
+  // before submit.
+  item_data: Record<string, string | string[]>;
+  // Only meaningful for watch-video and music streaming task types. seconds.
   watch_duration_sec?: number | null;
 }
 

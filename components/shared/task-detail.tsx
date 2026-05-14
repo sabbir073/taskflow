@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Textarea, Btn, Badge } from "@/components/ui";
-import { CheckCircle, XCircle, Clock, Upload, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell, Sparkles, Copy, Play, Trophy } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell, Sparkles, Copy, Play, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAcceptTask,
@@ -12,10 +12,12 @@ import {
 } from "@/hooks/use-tasks";
 import { useNotifyAssignmentToSubmit } from "@/hooks/use-groups";
 import { formatDate, getInitials } from "@/lib/utils";
-import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { PLATFORM_CONFIG, MUSIC_STREAM_SLUGS, MUSIC_PLATFORM_SLUGS } from "@/lib/constants/platforms";
 import { UserProfileModal } from "./user-profile-modal";
 import { RichTextContent } from "./rich-text-content";
 import { YoutubeWatchModal } from "./youtube-watch-modal";
+import { MusicPlayLockModal } from "./music-play-lock-modal";
+import { ImageUploadField } from "./image-upload-field";
 
 interface Props {
   data: { task: Record<string, unknown>; assignments: Record<string, unknown>[] };
@@ -190,6 +192,7 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
             assignment={myAssignment}
             items={myItemSubmissions}
             completionBonus={completionBonus}
+            platformSlug={platformSlug}
           />
         ) : null}
 
@@ -294,10 +297,12 @@ function BundleProofSection({
   assignment,
   items,
   completionBonus,
+  platformSlug,
 }: {
   assignment: Record<string, unknown>;
   items: ItemSubmission[];
   completionBonus: number;
+  platformSlug: string;
 }) {
   const status = String(assignment.status);
   const acceptTask = useAcceptTask();
@@ -367,6 +372,7 @@ function BundleProofSection({
               itemSubmission={it}
               itemIndex={idx + 1}
               totalItems={totalCount}
+              platformSlug={platformSlug}
             />
           ))
         )}
@@ -382,10 +388,12 @@ function BundleItemRow({
   itemSubmission,
   itemIndex,
   totalItems,
+  platformSlug,
 }: {
   itemSubmission: ItemSubmission;
   itemIndex: number;
   totalItems: number;
+  platformSlug: string;
 }) {
   const item = itemSubmission.task_bundle_items as BundleItem | undefined;
   const status = String(itemSubmission.status);
@@ -397,41 +405,32 @@ function BundleItemRow({
   const videoUrl = item?.item_data?.video_url || "";
   const watchSec = item?.watch_duration_sec ?? null;
   const isWatchVideo = slug === "watch-video";
+  const isMusicStream = MUSIC_STREAM_SLUGS.has(slug);
+  // For music tasks we use the track_url field; YouTube uses video_url.
+  const itemDataMixed = (item?.item_data as Record<string, string | string[]>) || {};
+  const trackUrl = String((itemDataMixed.track_url as string) || "");
   // Per-item content the admin configured (URL to like, comment text, etc).
-  // We render these inline above the proof form so the worker sees the
-  // "what to do" data + "how to submit" form in one place — important on
-  // mobile where the right-column sidebar appears far below.
-  const itemData: Record<string, string> = (item?.item_data as Record<string, string>) || {};
+  // Renders inline above the proof form so the worker sees the "what to do"
+  // data + "how to submit" form in one place — important on mobile where
+  // the right-column sidebar appears far below.
+  const itemData: Record<string, string | string[]> = itemDataMixed;
   const fieldDefs = (taskType?.required_fields as Array<{ name: string; label: string; type: string }> | undefined) || [];
-  // Hide the YouTube URL — the View Video button is the only sanctioned way
-  // for the worker to open the video.
-  const inlineHideKeys = isWatchVideo ? ["video_url"] : [];
-  const hasItemData = Object.keys(itemData).some(
-    (k) => !inlineHideKeys.includes(k) && itemData[k] !== undefined && itemData[k] !== ""
-  );
+  // Hide the YouTube/music URL — the player button is the only sanctioned
+  // way for the worker to open it.
+  const inlineHideKeys = isWatchVideo ? ["video_url"] : isMusicStream ? ["track_url"] : [];
+  const hasItemData = Object.keys(itemData).some((k) => {
+    if (inlineHideKeys.includes(k)) return false;
+    const v = itemData[k];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && v !== "";
+  });
 
   const submitItemProof = useSubmitItemProof();
   const [showVideo, setShowVideo] = useState(false);
+  const [showMusicLock, setShowMusicLock] = useState(false);
   const [proofUrls, setProofUrls] = useState<string[]>(itemSubmission.proof_urls || []);
   const [proofScreenshots, setProofScreenshots] = useState<string[]>(itemSubmission.proof_screenshots || []);
   const [proofNotes, setProofNotes] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [newUrl, setNewUrl] = useState("");
-
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.url) setProofScreenshots((prev) => [...prev, data.url]);
-    } catch { /* */ }
-    setUploading(false);
-    e.target.value = "";
-  }
 
   const statusPill = (() => {
     if (status === "approved") return <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
@@ -533,6 +532,43 @@ function BundleItemRow({
                 />
               )}
             </>
+          ) : isMusicStream && MUSIC_PLATFORM_SLUGS.has(platformSlug) ? (
+            // Music streaming: fullscreen lock player + countdown + tab-focus
+            // reset + auto-screenshot via html2canvas. Submission is fully
+            // automatic once the worker holds focus for watch_duration_sec.
+            <>
+              <Btn
+                className="w-full"
+                onClick={() => setShowMusicLock(true)}
+                isLoading={submitItemProof.isPending}
+                disabled={!trackUrl}
+              >
+                <Play className="w-4 h-4 mr-2" />
+                {watchSec ? `Listen ≥${watchSec}s to complete` : "Open player"}
+              </Btn>
+              {!trackUrl && (
+                <p className="text-[11px] text-error">No track URL configured for this item.</p>
+              )}
+              {showMusicLock && trackUrl && (
+                <MusicPlayLockModal
+                  trackUrl={trackUrl}
+                  platformSlug={platformSlug as "spotify" | "tidal" | "deezer" | "soundcloud" | "bandcamp"}
+                  watchDurationSec={watchSec || 30}
+                  onClose={() => setShowMusicLock(false)}
+                  onCompleted={(screenshotUrl) => {
+                    setShowMusicLock(false);
+                    submitItemProof.mutate({
+                      itemSubmissionId: itemSubmission.id,
+                      data: {
+                        proof_urls: [],
+                        proof_screenshots: screenshotUrl ? [screenshotUrl] : [],
+                        proof_notes: `Auto-submitted: streamed ${watchSec || 30}s on ${platformSlug}`,
+                      },
+                    });
+                  }}
+                />
+              )}
+            </>
           ) : (
             // Standard proof form per item type.
             <>
@@ -552,25 +588,13 @@ function BundleItemRow({
                 </div>
               )}
               {(proofType === "screenshot" || proofType === "both") && (
-                <div className="space-y-2">
-                  <Label className="text-xs">Screenshots</Label>
-                  {proofScreenshots.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {proofScreenshots.map((url, i) => (
-                        <div key={i} className="relative group">
-                          <img src={url} alt="" className="w-full h-24 object-cover rounded-lg" />
-                          <button onClick={() => setProofScreenshots(proofScreenshots.filter((_, j) => j !== i))}
-                            className="absolute top-1 right-1 w-5 h-5 bg-error text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">x</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <label className="block border-2 border-dashed border-border rounded-xl p-3 text-center cursor-pointer hover:border-primary/40 transition-colors">
-                    <Upload className="w-5 h-5 text-muted-foreground mx-auto mb-1" />
-                    <p className="text-[11px] text-muted-foreground">{uploading ? "Uploading..." : "Click to upload screenshot"}</p>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                  </label>
-                </div>
+                <ImageUploadField
+                  label="Screenshots"
+                  value={proofScreenshots}
+                  onChange={setProofScreenshots}
+                  multiple
+                  maxImages={5}
+                />
               )}
               <div className="space-y-1.5">
                 <Label className="text-xs">Notes (optional)</Label>
@@ -648,26 +672,45 @@ function BundleItemSidebarCard({
 }
 
 // Renders item_data entries using task_type field definitions for proper labels
-// and types (e.g. URL fields become clickable links).
+// and types. Image fields render as a thumbnail gallery with Download buttons;
+// URL fields render as clickable links; everything else as text.
 function TaskDataFields({
   taskData,
   fieldDefs,
   hideKeys = [],
 }: {
-  taskData: Record<string, string>;
+  // String for url/text/textarea; string[] for image fields (multi-image).
+  taskData: Record<string, string | string[]>;
   fieldDefs: Array<{ name: string; label: string; type: string }>;
   hideKeys?: string[];
 }) {
-  // Merge: definition order first, then any extra keys from task_data
   const defMap = new Map(fieldDefs.map((f) => [f.name, f]));
   const hidden = new Set(hideKeys);
+  const hasValue = (v: unknown): boolean => {
+    if (Array.isArray(v)) return v.length > 0;
+    return v !== undefined && v !== null && v !== "";
+  };
   const orderedKeys: string[] = [
-    ...fieldDefs.map((f) => f.name).filter((n) => !hidden.has(n) && taskData[n] !== undefined && taskData[n] !== ""),
-    ...Object.keys(taskData).filter((k) => !hidden.has(k) && !defMap.has(k) && taskData[k] !== undefined && taskData[k] !== ""),
+    ...fieldDefs.map((f) => f.name).filter((n) => !hidden.has(n) && hasValue(taskData[n])),
+    ...Object.keys(taskData).filter((k) => !hidden.has(k) && !defMap.has(k) && hasValue(taskData[k])),
   ];
 
   if (orderedKeys.length === 0) {
     return <p className="text-[11px] text-muted-foreground">No additional data</p>;
+  }
+
+  async function download(url: string, filename: string) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   }
 
   return (
@@ -676,22 +719,50 @@ function TaskDataFields({
         const value = taskData[key];
         const def = defMap.get(key);
         const label = def?.label || key.replace(/_/g, " ");
-        const isUrl = def?.type === "url" || (typeof value === "string" && /^https?:\/\//i.test(value));
+
+        // Image fields: gallery + Download buttons. Tolerates legacy
+        // single-string storage by coercing to a one-element array.
+        if (def?.type === "image") {
+          const urls = Array.isArray(value) ? value : [value as string];
+          return (
+            <div key={key} className="py-1.5 border-b border-border/30 last:border-0">
+              <p className="text-[10px] text-muted-foreground capitalize mb-1.5">{label}</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {urls.map((u, i) => (
+                  <div key={`${u}-${i}`} className="relative group rounded-lg overflow-hidden border border-border/40 bg-muted/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={u} alt="" className="w-full h-20 object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => download(u, `${key}-${i + 1}.jpg`)}
+                      className="absolute bottom-1 right-1 px-2 py-0.5 rounded bg-black/65 text-white text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      Download
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        const strVal = typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : String(value);
+        const isUrl = def?.type === "url" || (typeof strVal === "string" && /^https?:\/\//i.test(strVal));
         return (
           <div key={key} className="py-1.5 border-b border-border/30 last:border-0">
             <p className="text-[10px] text-muted-foreground capitalize">{label}</p>
             {isUrl ? (
               <a
-                href={value}
+                href={strVal}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-primary hover:underline break-all inline-flex items-start gap-1"
               >
-                <span className="break-all">{value}</span>
+                <span className="break-all">{strVal}</span>
                 <ExternalLink className="w-3 h-3 shrink-0 mt-0.5" />
               </a>
             ) : (
-              <p className="text-xs break-all">{value}</p>
+              <p className="text-xs break-all">{strVal}</p>
             )}
           </div>
         );
