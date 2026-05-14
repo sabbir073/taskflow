@@ -1,32 +1,38 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Select, Textarea, Btn, FieldError } from "@/components/ui";
-import { useTaskTypes } from "@/hooks/use-tasks";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Select, Textarea, Btn, FieldError, Badge } from "@/components/ui";
 import { updateTask } from "@/lib/actions/tasks";
 import { toast } from "sonner";
-import { Upload, X, Link2, Plus, Sparkles } from "lucide-react";
+import { Upload, X, Link2, Plus, Sparkles, AlertCircle, Trophy } from "lucide-react";
 import { RichTextEditor } from "@/components/shared/rich-text-editor";
-import { taskTypeNeedsAiPrompt } from "@/lib/content-task-types";
 
 interface Props {
   task: Record<string, unknown>;
   taskId: number;
 }
 
+type BundleItemView = {
+  id: number;
+  task_type_id: number;
+  sort_order: number;
+  points: number;
+  proof_type: string;
+  watch_duration_sec: number | null;
+  task_types?: { name?: string; slug?: string } | null;
+};
+
 type FormShape = {
   title: string;
   description: string;
   ai_prompt: string;
-  proof_type: string;
   priority: string;
   deadline: string;
-  points_per_completion: number;
   point_budget: number;
-  task_data: Record<string, string>;
+  completion_bonus: number;
 };
 
 export function TaskEditForm({ task, taskId }: Props) {
@@ -36,10 +42,10 @@ export function TaskEditForm({ task, taskId }: Props) {
 
   const targetType = String(task.target_type || "all_users");
   const isIndividual = targetType === "individual";
-  const platformId = task.platform_id as number | undefined;
-  const { data: taskTypes } = useTaskTypes(platformId || null);
-  const selectedTaskType = taskTypes?.find((t) => (t.id as number) === (task.task_type_id as number));
-  const requiredFields = (selectedTaskType?.required_fields as Array<{ name: string; label: string; type: string; placeholder?: string }>) || [];
+  const bundleItems = ((task.task_bundle_items as BundleItemView[] | undefined) || [])
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+  const hasAnyAssignment = false; // server enforces; this hint is informational only
 
   const [taskImages, setTaskImages] = useState<string[]>((task.images as string[]) || []);
   const [taskUrls, setTaskUrls] = useState<string[]>((task.urls as string[]) || []);
@@ -51,28 +57,24 @@ export function TaskEditForm({ task, taskId }: Props) {
       title: String(task.title || ""),
       description: String(task.description || ""),
       ai_prompt: String(task.ai_prompt || ""),
-      proof_type: String(task.proof_type || "both"),
       priority: String(task.priority || "medium"),
       deadline: task.deadline ? String(task.deadline).slice(0, 16) : "",
-      points_per_completion: Number(task.points_per_completion || 0),
       point_budget: Number(task.point_budget || 0),
-      task_data: (task.task_data as Record<string, string>) || {},
+      completion_bonus: Number(task.completion_bonus || 0),
     },
   });
 
-  const showAiPrompt = taskTypeNeedsAiPrompt(selectedTaskType?.slug as string | undefined);
+  const showAiPrompt = !!task.ai_prompt;
 
-  // useWatch instead of `watch()` so React Compiler can memoize children
-  // that consume these values.
   const watchBudget = useWatch({ control, name: "point_budget" });
-  const watchPerCompletion = useWatch({ control, name: "points_per_completion" });
+  const watchBonus = useWatch({ control, name: "completion_bonus" }) || 0;
 
-  useEffect(() => {
-    if (isIndividual) setValue("point_budget", watchPerCompletion || 0);
-  }, [isIndividual, watchPerCompletion, setValue]);
-
-  const effectiveBudget = isIndividual ? (watchPerCompletion || 0) : (watchBudget || 0);
-  const maxCompletions = isIndividual ? 1 : (watchPerCompletion > 0 ? Math.floor(watchBudget / watchPerCompletion) : 0);
+  // Per-completion cost is fixed by the bundle items + bonus (items can't
+  // be edited from this form). Display only — no input control.
+  const itemsPointsSum = bundleItems.reduce((s, it) => s + Number(it.points || 0), 0);
+  const perCompletionCost = itemsPointsSum + Number(watchBonus || 0);
+  const effectiveBudget = isIndividual ? perCompletionCost : (watchBudget || 0);
+  const maxCompletions = isIndividual ? 1 : (perCompletionCost > 0 ? Math.floor((watchBudget || 0) / perCompletionCost) : 0);
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -109,13 +111,14 @@ export function TaskEditForm({ task, taskId }: Props) {
       title: data.title,
       description: data.description,
       ai_prompt: showAiPrompt ? (data.ai_prompt?.trim() || null) : null,
-      proof_type: data.proof_type,
       priority: data.priority,
       deadline: data.deadline || null,
-      points_per_completion: Number(data.points_per_completion),
-      points: Number(data.points_per_completion),
-      point_budget: isIndividual ? Number(data.points_per_completion) : Number(data.point_budget),
-      task_data: data.task_data || {},
+      // Server recomputes points_per_completion from items[] + bonus when
+      // items are sent; for the meta-only edit path here we still pass the
+      // mirrored sum so dashboards stay consistent.
+      points_per_completion: perCompletionCost,
+      point_budget: isIndividual ? perCompletionCost : Number(data.point_budget),
+      completion_bonus: Number(data.completion_bonus || 0),
       images: taskImages,
       urls: finalUrls,
     });
@@ -155,18 +158,38 @@ export function TaskEditForm({ task, taskId }: Props) {
               placeholder="Describe what needs to be done..."
             />
           </div>
+        </CardContent>
+      </Card>
 
-          {requiredFields.length > 0 && (
-            <div className="space-y-3 pt-3 border-t border-border/50">
-              <p className="text-sm font-medium text-muted-foreground">Task-specific fields</p>
-              {requiredFields.map((field) => (
-                <div key={field.name} className="space-y-1.5">
-                  <Label>{field.label}</Label>
-                  <Input
-                    {...register(`task_data.${field.name}` as const)}
-                    type={field.type === "url" ? "url" : "text"}
-                    placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-                  />
+      {/* Bundle items — read-only summary. Plan §3a: items can only be
+          replaced when no assignments exist; we keep this form meta-only. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Bundle Items</CardTitle>
+          <CardDescription>
+            Per-action configuration is set at create time. Delete and recreate the task to change the action mix.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {bundleItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No bundle items configured.</p>
+          ) : (
+            <div className="space-y-2">
+              {bundleItems.map((it, idx) => (
+                <div key={it.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-muted/30">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                      {idx + 1} / {bundleItems.length}
+                    </span>
+                    <p className="text-sm font-medium truncate">{it.task_types?.name || `Item #${it.id}`}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 text-xs">
+                    <Badge variant="default" className="capitalize">
+                      {it.proof_type === "none" ? "Auto" : it.proof_type}
+                    </Badge>
+                    {it.watch_duration_sec && <span className="text-muted-foreground">≥{it.watch_duration_sec}s</span>}
+                    <span className="font-mono text-primary font-semibold">+{Number(it.points).toFixed(2)}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -174,7 +197,7 @@ export function TaskEditForm({ task, taskId }: Props) {
         </CardContent>
       </Card>
 
-      {/* AI Prompt — only for content-generating task types */}
+      {/* AI Prompt — only when the original task had one */}
       {showAiPrompt && (
         <Card className="border-primary/20 bg-primary/[0.02]">
           <CardHeader>
@@ -182,15 +205,12 @@ export function TaskEditForm({ task, taskId }: Props) {
               <Sparkles className="w-4 h-4 text-primary" /> AI Prompt
               <span className="ml-1 text-[10px] font-normal bg-primary/10 text-primary px-2 py-0.5 rounded-full uppercase tracking-wider">Optional</span>
             </CardTitle>
-            <CardDescription>
-              A ready-to-use prompt users can paste into ChatGPT / Claude to generate the content for this task.
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
               {...register("ai_prompt")}
               rows={4}
-              placeholder={"e.g. Write a friendly 2-sentence comment praising this product's ease of use. Keep it natural and under 200 characters."}
+              placeholder="Prompt that workers can copy into ChatGPT / Claude"
             />
           </CardContent>
         </Card>
@@ -263,18 +283,26 @@ export function TaskEditForm({ task, taskId }: Props) {
         </CardContent>
       </Card>
 
-      {/* Points Budget */}
+      {/* Reward Settings */}
       <Card>
         <CardHeader>
-          <CardTitle>Points Budget</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Trophy className="w-4 h-4 text-primary" /> Reward Settings</CardTitle>
           <CardDescription>
-            {isIndividual
-              ? "The full reward goes to the single assigned user"
-              : "Total budget and reward per completion"}
+            Per-completion = sum of bundle item points + completion bonus.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className={`grid grid-cols-1 gap-4 ${isIndividual ? "" : "sm:grid-cols-2"}`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Completion Bonus (pts)</Label>
+              <Input
+                {...register("completion_bonus", { valueAsNumber: true, min: { value: 0, message: "Min 0" } })}
+                type="number"
+                step="0.01"
+                min={0}
+              />
+              <p className="text-[11px] text-muted-foreground">Extra reward when a worker completes ALL items</p>
+            </div>
             {!isIndividual && (
               <div className="space-y-1.5">
                 <Label>Total Budget (pts) *</Label>
@@ -282,17 +310,24 @@ export function TaskEditForm({ task, taskId }: Props) {
                 {errors.point_budget && <FieldError>{errors.point_budget.message}</FieldError>}
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label>{isIndividual ? "Reward for User (pts) *" : "Points per Completion *"}</Label>
-              <Input {...register("points_per_completion", { valueAsNumber: true, min: { value: 0.01, message: "Min 0.01" } })} type="number" step="0.01" min={0.01} error={!!errors.points_per_completion} />
-              {errors.points_per_completion && <FieldError>{errors.points_per_completion.message}</FieldError>}
+          </div>
+          <div className="rounded-xl bg-muted/40 p-3 text-sm space-y-1.5">
+            <div className="flex justify-between"><span className="text-muted-foreground">Sum of action points</span><span className="font-mono">{itemsPointsSum.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Completion bonus</span><span className="font-mono">+{Number(watchBonus || 0).toFixed(2)}</span></div>
+            <div className="flex justify-between border-t border-border/50 pt-1.5 mt-1">
+              <span className="text-muted-foreground">{isIndividual ? "Reward to user" : "Cost per completion"}</span>
+              <span className="font-bold">{perCompletionCost.toFixed(2)} pts</span>
             </div>
+            {!isIndividual && (
+              <div className="flex justify-between"><span className="text-muted-foreground">Max completions</span><span className="font-semibold">{maxCompletions}</span></div>
+            )}
+            <div className="flex justify-between"><span className="text-muted-foreground">Total budget</span><span className="font-bold text-warning">{effectiveBudget.toFixed(2)} pts</span></div>
           </div>
-          <div className="p-3 rounded-xl bg-muted/40 text-sm space-y-1.5">
-            <div className="flex justify-between"><span className="text-muted-foreground">Max completions</span><span className="font-semibold">{maxCompletions}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">{isIndividual ? "Reward to user" : "Cost per completion"}</span><span className="font-semibold">{(watchPerCompletion || 0).toFixed(2)} pts</span></div>
-            <div className="flex justify-between border-t border-border/50 pt-1.5 mt-1"><span className="text-muted-foreground">Total budget</span><span className="font-bold text-warning">{effectiveBudget.toFixed(2)} pts</span></div>
-          </div>
+          {hasAnyAssignment && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" /> Bundle items cannot be changed while assignments exist.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -300,15 +335,7 @@ export function TaskEditForm({ task, taskId }: Props) {
       <Card>
         <CardHeader><CardTitle>Settings</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <Label>Proof Required *</Label>
-              <Select {...register("proof_type")}>
-                <option value="both">URL + Screenshot</option>
-                <option value="url">URL Only</option>
-                <option value="screenshot">Screenshot Only</option>
-              </Select>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Priority</Label>
               <Select {...register("priority")}>

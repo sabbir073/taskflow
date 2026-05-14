@@ -8,18 +8,39 @@ import { recordAudit } from "@/lib/audit";
 import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
+// A single action item inside a bundle task. After migration 047 every task
+// has at least one of these. Pre-bundle "single tasks" are just bundles of 1.
+const taskBundleItemSchema = z.object({
+  task_type_id: z.number().int().positive(),
+  points: z.number().min(0, "Item points cannot be negative"),
+  proof_type: z.enum(["url", "screenshot", "both", "none"]).default("screenshot"),
+  item_data: z.record(z.string(), z.string()).optional().default({}),
+  // Only used when the joined task_type.slug is 'watch-video'. Required by
+  // the UI in that case but accepted nullable here so the schema can be
+  // shared across task types.
+  watch_duration_sec: z.number().int().min(1).max(7200).nullable().optional(),
+});
+
 const taskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(5000).optional().default(""),
   ai_prompt: z.string().max(5000).optional().nullable().default(null),
   platform_id: z.number().int().positive(),
-  task_type_id: z.number().int().positive(),
+  // Bundle items — at least one required. The legacy task_type_id /
+  // task_data / proof_type fields are still accepted for backward
+  // compatibility (see compatItemsFromLegacy below) but new clients should
+  // send items[].
+  items: z.array(taskBundleItemSchema).min(1, "At least one bundle item is required").optional(),
+  completion_bonus: z.number().min(0).optional().default(0),
+  // ---- legacy single-task fields (the bundle UI no longer writes these) ----
+  task_type_id: z.number().int().positive().optional(),
   task_data: z.record(z.string(), z.string()).optional().default({}),
+  proof_type: z.enum(["url", "screenshot", "both", "none"]).optional(),
+  // ---- common fields ----
   images: z.array(z.string()).optional().default([]),
   urls: z.array(z.string()).optional().default([]),
-  proof_type: z.enum(["url", "screenshot", "both", "none"]).default("both"),
   point_budget: z.number().min(0.01, "Budget must be greater than 0"),
-  points_per_completion: z.number().min(0.01, "Points per completion must be greater than 0"),
+  points_per_completion: z.number().min(0, "Points per completion cannot be negative").optional(),
   priority: z.enum(["low", "medium", "high"]),
   deadline: z.string().nullable().optional(),
   status: z.enum(["draft", "pending"]),
@@ -33,6 +54,25 @@ const taskSchema = z.object({
   max_completions: z.number().nullable().optional(),
 });
 
+// Normalise a payload into a non-empty items[] array. Accepts either the
+// new bundle shape (items[]) or the legacy single-task shape (task_type_id +
+// task_data + proof_type + points_per_completion).
+function resolveBundleItems(input: z.infer<typeof taskSchema>): z.infer<typeof taskBundleItemSchema>[] {
+  if (input.items && input.items.length > 0) return input.items;
+  if (input.task_type_id) {
+    return [{
+      task_type_id: input.task_type_id,
+      points: input.points_per_completion ?? 0,
+      proof_type: input.proof_type || "screenshot",
+      item_data: input.task_data || {},
+      watch_duration_sec: null,
+    }];
+  }
+  // Caller passed neither — schema validation should have caught this. Throw
+  // so the caller's try/catch surfaces a clean error to the user.
+  throw new z.ZodError([{ code: "custom", path: ["items"], message: "Provide bundle items or a legacy task_type_id" }]);
+}
+
 // Anyone can create tasks - admins get auto-approved, users need admin approval
 // Points are deducted from creator's wallet immediately on publish
 export async function createTask(formData: z.infer<typeof taskSchema>): Promise<ApiResponse> {
@@ -43,6 +83,18 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
     const validated = taskSchema.parse(formData);
     const db = getServerClient();
     const isAdmin = isStaffRole(session.user.role);
+
+    // Resolve to bundle items (handles legacy single-task payloads too).
+    const items = resolveBundleItems(validated);
+    const completionBonus = Number(validated.completion_bonus || 0);
+    // Cost-per-worker = sum of item points + bonus. The legacy
+    // points_per_completion column is kept in sync with this number so old
+    // dashboards / leaderboard widgets keep showing the right value.
+    const perCompletion = items.reduce((s, it) => s + Number(it.points || 0), 0) + completionBonus;
+    if (perCompletion <= 0) {
+      return { success: false, error: "Total points per completion must be greater than 0" };
+    }
+    validated.points_per_completion = perCompletion;
 
     // Suspended users cannot create tasks
     if (!isAdmin) {
@@ -60,11 +112,11 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
 
     // Individual tasks: full budget goes to the single assigned user
     if (validated.target_type === "individual") {
-      validated.point_budget = validated.points_per_completion;
+      validated.point_budget = perCompletion;
     }
 
-    // Validate budget: points_per_completion * possible completions <= point_budget
-    if (validated.points_per_completion > validated.point_budget) {
+    // Validate budget: per-completion cost (incl. bonus) cannot exceed budget.
+    if (perCompletion > validated.point_budget) {
       return { success: false, error: "Points per completion cannot exceed total budget" };
     }
 
@@ -107,19 +159,27 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
     // Admin tasks are auto-approved, user tasks need approval
     const approvalStatus = isAdmin ? "approved" : "pending_approval";
 
+    // The legacy task_type_id / task_data / proof_type columns mirror
+    // items[0] so existing read paths (leaderboard, dashboards, the old
+    // single-task UI fallback) keep working unchanged.
+    const primaryItem = items[0];
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { target_user_email: _email, ...taskFields } = validated;
+    const { target_user_email: _email, items: _items, completion_bonus: _bonus, ...taskFields } = validated;
 
     const { data: task, error } = await db
       .from("tasks")
       .insert({
         ...taskFields,
-        task_data: validated.task_data || {},
+        task_type_id: primaryItem.task_type_id,
+        task_data: primaryItem.item_data || {},
+        proof_type: primaryItem.proof_type,
         target_user_id: resolvedUserId,
-        points: validated.points_per_completion,
+        points: perCompletion,
         point_budget: validated.point_budget,
-        points_per_completion: validated.points_per_completion,
+        points_per_completion: perCompletion,
         points_spent: 0,
+        completion_bonus: completionBonus,
         images: validated.images || [],
         urls: validated.urls || [],
         ai_prompt: validated.ai_prompt || null,
@@ -134,6 +194,23 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
     }
 
     const taskRecord = task as Record<string, unknown>;
+
+    // Persist every bundle item. If this fails we still leave the task row —
+    // the admin can edit/delete to recover. Logging is enough for now.
+    const itemRows = items.map((it, idx) => ({
+      task_id: taskRecord.id as number,
+      task_type_id: it.task_type_id,
+      sort_order: idx,
+      points: it.points,
+      proof_type: it.proof_type,
+      item_data: it.item_data || {},
+      watch_duration_sec: it.watch_duration_sec ?? null,
+    }));
+    const { error: itemsErr } = await db.from("task_bundle_items").insert(itemRows as never[]);
+    if (itemsErr) {
+      console.error("[createTask] failed to insert bundle items", itemsErr);
+      return { success: false, error: "Failed to save bundle items" };
+    }
 
     // If publishing, deduct points from creator's wallet
     if (validated.status === "pending") {
@@ -237,7 +314,33 @@ async function createAssignments(
     user_id: userId,
     status: "pending",
   }));
-  await db.from("task_assignments").insert(assignments as never[]);
+  const { data: insertedAssignments } = await db
+    .from("task_assignments")
+    .insert(assignments as never[])
+    .select("id");
+
+  // Eagerly create one assignment_item_submissions row per (assignment,
+  // bundle_item) so every read path (worker UI, admin review tab) sees the
+  // full grid without lazy upserts.
+  const assignmentIds = ((insertedAssignments || []) as Record<string, unknown>[]).map((a) => a.id as number);
+  if (assignmentIds.length > 0) {
+    const { data: bundleItems } = await db
+      .from("task_bundle_items")
+      .select("id")
+      .eq("task_id", taskId)
+      .order("sort_order", { ascending: true });
+    const itemIds = ((bundleItems || []) as Record<string, unknown>[]).map((b) => b.id as number);
+    if (itemIds.length > 0) {
+      const submissionRows = assignmentIds.flatMap((aid) =>
+        itemIds.map((bid) => ({
+          assignment_id: aid,
+          bundle_item_id: bid,
+          status: "pending" as const,
+        }))
+      );
+      await db.from("assignment_item_submissions").insert(submissionRows as never[]);
+    }
+  }
 
   // Notify each assigned user in real-time
   const title = taskTitle || String((task as Record<string, unknown>).title || "a task");
@@ -388,13 +491,44 @@ export async function updateTask(
     }
     const updateData: Record<string, unknown> = { ...parsed.data };
 
-    // Mirror createTask: keep `points` in sync with `points_per_completion`
-    if (updateData.points_per_completion !== undefined) {
-      updateData.points = updateData.points_per_completion;
+    // If the payload carries a new items[] array, we may replace the bundle
+    // — but only when no assignments have been created yet (i.e., the task
+    // is still in draft OR no task_assignments rows exist). Otherwise we
+    // drop the items field silently so existing item-submissions don't
+    // dangle pointing at items that no longer exist.
+    let replaceItems: z.infer<typeof taskBundleItemSchema>[] | null = null;
+    if (parsed.data.items && parsed.data.items.length > 0) {
+      const { count } = await db
+        .from("task_assignments")
+        .select("id", { count: "exact", head: true })
+        .eq("task_id", taskId);
+      if ((count || 0) === 0) {
+        replaceItems = parsed.data.items;
+      }
+    }
+    delete (updateData as Record<string, unknown>).items;
+
+    // Keep legacy mirrors in sync if items replaced.
+    if (replaceItems) {
+      const primary = replaceItems[0];
+      const newBonus = Number(parsed.data.completion_bonus ?? 0);
+      const newPerCompletion = replaceItems.reduce((s, it) => s + Number(it.points || 0), 0) + newBonus;
+      updateData.task_type_id = primary.task_type_id;
+      updateData.proof_type = primary.proof_type;
+      updateData.task_data = primary.item_data || {};
+      updateData.completion_bonus = newBonus;
+      updateData.points_per_completion = newPerCompletion;
+      updateData.points = newPerCompletion;
+    } else {
+      // Mirror createTask: keep `points` in sync with `points_per_completion`
+      if (updateData.points_per_completion !== undefined) {
+        updateData.points = updateData.points_per_completion;
+      }
     }
 
     // Strip ephemeral / non-DB fields
     delete (updateData as Record<string, unknown>).target_user_email;
+    delete (updateData as Record<string, unknown>).completion_bonus; // handled above when replacing items
 
     // Don't let a creator lower point_budget below already-spent amount —
     // would break the budget invariant for assignments already approved.
@@ -421,6 +555,27 @@ export async function updateTask(
       .eq("id", taskId);
 
     if (error) return { success: false, error: "Failed to update task" };
+
+    // Replace bundle items in a fresh insert pass. We've already gated this
+    // on "no assignments exist for this task" so there can be no dangling
+    // assignment_item_submissions referring to the items we're deleting.
+    if (replaceItems) {
+      await db.from("task_bundle_items").delete().eq("task_id", taskId);
+      const rows = replaceItems.map((it, idx) => ({
+        task_id: taskId,
+        task_type_id: it.task_type_id,
+        sort_order: idx,
+        points: it.points,
+        proof_type: it.proof_type,
+        item_data: it.item_data || {},
+        watch_duration_sec: it.watch_duration_sec ?? null,
+      }));
+      const { error: replaceErr } = await db.from("task_bundle_items").insert(rows as never[]);
+      if (replaceErr) {
+        console.error("[updateTask] failed to replace bundle items", replaceErr);
+        return { success: false, error: "Failed to update bundle items" };
+      }
+    }
 
     const taskTitle = String(task.title || "task");
     const editorName = session.user.name || "Someone";
@@ -643,13 +798,23 @@ export async function getTaskById(taskId: number) {
 
   const { data: task } = await db
     .from("tasks")
-    .select("*, platforms!inner(name, slug, icon), task_types!inner(name, slug, required_fields, proof_type, default_points), users!tasks_created_by_fkey(name, email), groups(id, name, leader_id)")
+    .select(
+      "*," +
+      "platforms!inner(name, slug, icon)," +
+      "task_types!inner(name, slug, required_fields, proof_type, default_points)," +
+      "task_bundle_items(*, task_types(name, slug, required_fields, proof_type, default_points))," +
+      "users!tasks_created_by_fkey(name, email)," +
+      "groups(id, name, leader_id)"
+    )
     .eq("id", taskId)
     .single();
 
   if (!task) return null;
 
-  const t = task as Record<string, unknown>;
+  // Generated Supabase types don't yet know about task_bundle_items, so the
+  // joined select trips its inference. Cast via unknown so the downstream
+  // code can treat the row as a generic record.
+  const t = task as unknown as Record<string, unknown>;
   const isAdmin = isStaffRole(session.user.role);
   const isCreator = t.created_by === session.user.id;
   const group = t.groups as Record<string, unknown> | null;
@@ -670,13 +835,17 @@ export async function getTaskById(taskId: number) {
 
   const { data: assignments } = await db
     .from("task_assignments")
-    .select("*, users!task_assignments_user_id_fkey(id, name, email, image)")
+    .select(
+      "*," +
+      "users!task_assignments_user_id_fkey(id, name, email, image)," +
+      "assignment_item_submissions(*, task_bundle_items(*, task_types(name, slug)))"
+    )
     .eq("task_id", taskId)
     .order("created_at", { ascending: false });
 
   return {
     task: t,
-    assignments: (assignments || []) as Record<string, unknown>[],
+    assignments: (assignments || []) as unknown as Record<string, unknown>[],
   };
 }
 

@@ -6,7 +6,7 @@ import {
   Search, Clock, CheckCircle, XCircle, Plus, Coins, Trash2, Edit2,
   ExternalLink, Image as ImageIcon, Wallet, FileText,
 } from "lucide-react";
-import { useTasks, useMyTasks, usePendingReviews, useApproveTask, useRejectTask, useReviewAssignment, useDeleteTask, useAcceptTask } from "@/hooks/use-tasks";
+import { useTasks, useMyTasks, useApproveTask, useRejectTask, useReviewItemSubmission, usePendingItemReviews, useDeleteTask, useAcceptTask } from "@/hooks/use-tasks";
 import { EmptyState } from "./empty-state";
 import { ConfirmDialog } from "./confirm-dialog";
 import { formatDate, getInitials } from "@/lib/utils";
@@ -51,7 +51,9 @@ export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: strin
   const myTasksCount = useTasks({ page: 1, pageSize: 1, created_by: userId });
   const doableCount = useMyTasks({ page: 1, pageSize: 1 });
   const manageCount = useTasks({ page: 1, pageSize: 1 });
-  const reviewCount = usePendingReviews({ page: 1, pageSize: 1 });
+  // Review badge now counts pending per-ITEM submissions (a bundle worker
+  // can land 1 of 4 items, which still warrants a review).
+  const reviewCount = usePendingItemReviews({ page: 1, pageSize: 1 });
 
   const tabs = [
     { key: "doable" as const, label: "Doable Tasks", short: "Doable", count: doableCount.data?.total ?? 0 },
@@ -641,13 +643,19 @@ function ManageTasksTab() {
 
 // ============================================================================
 // Tab 4: Admin review submissions
+//
+// Bundle-aware: lists individual `assignment_item_submissions` rows in the
+// 'submitted' state. Sibling items belonging to the same assignment are
+// rendered as separate cards (admin reviews each item independently). When
+// the LAST item is approved the parent assignment auto-finalises and the
+// completion bonus is credited atomically inside the RPC.
 // ============================================================================
 function ReviewTab() {
   const [page, setPage] = useState(1);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  const { data, isLoading } = usePendingReviews({ page, pageSize: 20 });
-  const review = useReviewAssignment();
+  const { data, isLoading } = usePendingItemReviews({ page, pageSize: 20 });
+  const review = useReviewItemSubmission();
   const items = data?.data || [];
   const totalPages = data?.totalPages || 1;
 
@@ -658,23 +666,31 @@ function ReviewTab() {
       ) : (
         <div className="space-y-3">
           {items.map((item) => {
-            const user = item.users as Record<string, unknown>;
-            const task = item.tasks as Record<string, unknown>;
-            const platform = task?.platforms as Record<string, unknown>;
-            const assignmentId = item.id as number;
+            // Item submission row joined with bundle item + parent assignment.
+            const bundleItem = (item.task_bundle_items as Record<string, unknown> | undefined) || {};
+            const itemTaskType = (bundleItem.task_types as Record<string, unknown> | undefined) || {};
+            const parent = (item.task_assignments as Record<string, unknown> | undefined) || {};
+            const task = (parent.tasks as Record<string, unknown> | undefined) || {};
+            const user = (parent.users as Record<string, unknown> | undefined) || {};
+            const platform = (task.platforms as Record<string, unknown> | undefined) || {};
+
+            const itemSubmissionId = item.id as number;
+            const taskId = task.id as number;
             const name = String(user?.name || "Unknown");
             const email = String(user?.email || "");
             const taskTitle = String(task?.title || "");
             const platformName = String(platform?.name || "");
-            const points = Number(task?.points_per_completion || task?.points || 0);
+            const itemName = String(itemTaskType?.name || "Action");
+            const points = Number(bundleItem?.points || 0);
             const proofUrls = (item.proof_urls as string[]) || [];
             const proofShots = (item.proof_screenshots as string[]) || [];
             const notes = item.proof_notes ? String(item.proof_notes) : "";
-            const isRejecting = rejectingId === assignmentId;
+            const isRejecting = rejectingId === itemSubmissionId;
+            const completionBonus = Number(task?.completion_bonus || 0);
 
             return (
-              <Card key={assignmentId} className="overflow-hidden">
-                {/* DESKTOP — original */}
+              <Card key={itemSubmissionId} className="overflow-hidden">
+                {/* DESKTOP */}
                 <div className="hidden sm:block">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
@@ -683,8 +699,8 @@ function ReviewTab() {
                         <div><p className="text-sm font-semibold">{name}</p><p className="text-xs text-muted-foreground">{email}</p></div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium">{taskTitle}</p>
-                        <p className="text-xs text-muted-foreground">{platformName} &middot; {points} pts</p>
+                        <Link href={`/tasks/${taskId}`} className="text-sm font-medium hover:text-primary transition-colors">{taskTitle}</Link>
+                        <p className="text-xs text-muted-foreground">{platformName} &middot; <span className="text-primary font-semibold">{itemName}</span> &middot; {points.toFixed(2)} pts</p>
                       </div>
                     </div>
 
@@ -695,20 +711,26 @@ function ReviewTab() {
                       {proofShots.map((url, i) => (
                         <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1"><ImageIcon className="w-3 h-3" /> Screenshot {i + 1}</a>
                       ))}
+                      {proofUrls.length === 0 && proofShots.length === 0 && (
+                        <span className="text-xs text-muted-foreground italic">Auto-submitted (no proof required)</span>
+                      )}
                     </div>
 
                     {!!notes && <p className="text-xs text-muted-foreground bg-muted/40 px-3 py-2 rounded-lg">{notes}</p>}
 
                     <div className="flex gap-2 pt-2 border-t border-border/50">
-                      <Btn size="sm" onClick={() => review.mutate({ assignmentId, action: "approve" })}><CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve</Btn>
+                      <Btn size="sm" onClick={() => review.mutate({ itemSubmissionId, action: "approve" })} disabled={review.isPending}><CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve</Btn>
                       {isRejecting ? (
                         <div className="flex-1 flex gap-2">
                           <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason..." className="h-9 text-xs" autoFocus />
-                          <Btn variant="danger" size="sm" disabled={!rejectReason.trim()} onClick={() => { review.mutate({ assignmentId, action: "reject", reason: rejectReason }); setRejectingId(null); setRejectReason(""); }}>Reject</Btn>
+                          <Btn variant="danger" size="sm" disabled={!rejectReason.trim() || review.isPending} onClick={() => { review.mutate({ itemSubmissionId, action: "reject", reason: rejectReason }); setRejectingId(null); setRejectReason(""); }}>Reject</Btn>
                           <Btn variant="ghost" size="sm" onClick={() => { setRejectingId(null); setRejectReason(""); }}>Cancel</Btn>
                         </div>
                       ) : (
-                        <Btn variant="outline" size="sm" onClick={() => setRejectingId(assignmentId)}><XCircle className="w-3.5 h-3.5 mr-1" /> Reject</Btn>
+                        <Btn variant="outline" size="sm" onClick={() => setRejectingId(itemSubmissionId)}><XCircle className="w-3.5 h-3.5 mr-1" /> Reject</Btn>
+                      )}
+                      {completionBonus > 0 && (
+                        <span className="ml-auto text-[11px] text-muted-foreground self-center">+ {completionBonus.toFixed(2)} bundle bonus pending</span>
                       )}
                     </div>
                   </CardContent>
@@ -716,7 +738,6 @@ function ReviewTab() {
 
                 {/* MOBILE */}
                 <div className="sm:hidden">
-                  {/* Submitter */}
                   <div className="flex items-center gap-3 px-4 pt-4">
                     <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-sm font-bold text-primary shrink-0">
                       {getInitials(name)}
@@ -727,22 +748,20 @@ function ReviewTab() {
                     </div>
                   </div>
 
-                  {/* Task block */}
                   <div className="mx-4 mt-3 rounded-xl bg-muted/40 border border-border/40 p-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                      <FileText className="w-3 h-3" /> Submission
+                      <FileText className="w-3 h-3" /> {itemName}
                     </div>
                     <p className="text-sm font-semibold text-foreground leading-snug">{taskTitle}</p>
                     <div className="mt-2 flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-muted-foreground">{platformName}</span>
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold">
-                        <Coins className="w-2.5 h-2.5" /> {points} pts
+                        <Coins className="w-2.5 h-2.5" /> {points.toFixed(2)} pts
                       </span>
                     </div>
                   </div>
 
-                  {/* Proof links */}
-                  {(proofUrls.length > 0 || proofShots.length > 0) && (
+                  {(proofUrls.length > 0 || proofShots.length > 0) ? (
                     <div className="px-4 mt-3 flex flex-wrap gap-2">
                       {proofUrls.map((url, i) => (
                         <a key={`mu${i}`} href={url} target="_blank" rel="noopener noreferrer"
@@ -757,9 +776,10 @@ function ReviewTab() {
                         </a>
                       ))}
                     </div>
+                  ) : (
+                    <p className="px-4 mt-3 text-[11px] text-muted-foreground italic">Auto-submitted (no proof required)</p>
                   )}
 
-                  {/* Notes */}
                   {!!notes && (
                     <div className="px-4 mt-3">
                       <p className="text-xs text-muted-foreground bg-muted/40 border border-border/40 px-3 py-2 rounded-lg italic">
@@ -768,14 +788,13 @@ function ReviewTab() {
                     </div>
                   )}
 
-                  {/* Footer */}
                   <div className="mt-4 px-4 py-3 border-t border-border/50 bg-muted/20">
                     {isRejecting ? (
                       <div className="flex flex-col gap-2">
                         <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Rejection reason..." className="h-9 text-xs" autoFocus />
                         <div className="flex gap-2">
-                          <Btn variant="danger" size="sm" disabled={!rejectReason.trim()} className="flex-1"
-                            onClick={() => { review.mutate({ assignmentId, action: "reject", reason: rejectReason }); setRejectingId(null); setRejectReason(""); }}>
+                          <Btn variant="danger" size="sm" disabled={!rejectReason.trim() || review.isPending} className="flex-1"
+                            onClick={() => { review.mutate({ itemSubmissionId, action: "reject", reason: rejectReason }); setRejectingId(null); setRejectReason(""); }}>
                             Reject
                           </Btn>
                           <Btn variant="ghost" size="sm" onClick={() => { setRejectingId(null); setRejectReason(""); }}>Cancel</Btn>
@@ -783,10 +802,10 @@ function ReviewTab() {
                       </div>
                     ) : (
                       <div className="flex gap-2">
-                        <Btn size="sm" className="flex-1" onClick={() => review.mutate({ assignmentId, action: "approve" })}>
+                        <Btn size="sm" className="flex-1" onClick={() => review.mutate({ itemSubmissionId, action: "approve" })} disabled={review.isPending}>
                           <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
                         </Btn>
-                        <Btn variant="outline" size="sm" className="flex-1" onClick={() => setRejectingId(assignmentId)}>
+                        <Btn variant="outline" size="sm" className="flex-1" onClick={() => setRejectingId(itemSubmissionId)}>
                           <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
                         </Btn>
                       </div>

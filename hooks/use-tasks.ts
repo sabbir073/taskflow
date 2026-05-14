@@ -2,7 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getTasks, getTaskById, createTask, deleteTask, publishTask, approveTask, rejectTask, getPendingApprovalTasks } from "@/lib/actions/tasks";
-import { getMyTasks, acceptTask, submitProof, reviewAssignment, getPendingReviews } from "@/lib/actions/assignments";
+import {
+  getMyTasks, acceptTask, submitProof, reviewAssignment, getPendingReviews,
+  submitItemProof, reviewItemSubmission, getMyAssignmentForTaskWithItems, getPendingItemReviews,
+} from "@/lib/actions/assignments";
 import { getPlatforms, getTaskTypesByPlatform } from "@/lib/actions/platforms";
 import { toast } from "sonner";
 import type { PaginationParams } from "@/types";
@@ -101,6 +104,73 @@ export function useAcceptTask() {
   });
 }
 
+// Worker's view of one task assignment + all per-item submission rows.
+// Canonical fetch for the task detail page.
+export function useMyAssignmentWithItems(taskId: number) {
+  return useQuery({
+    queryKey: ["my-assignment", taskId],
+    queryFn: () => getMyAssignmentForTaskWithItems(taskId),
+    enabled: !!taskId,
+  });
+}
+
+// Pending bundle-item submissions for the admin Review tab.
+export function usePendingItemReviews(params?: PaginationParams) {
+  return useQuery({
+    queryKey: ["pending-item-reviews", params],
+    queryFn: () => getPendingItemReviews(params),
+  });
+}
+
+// Submit one bundle item's proof. Invalidates the worker's assignment
+// query (so the UI flips that row to 'submitted') along with the usual
+// notification + my-tasks queries.
+export function useSubmitItemProof() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemSubmissionId, data }: { itemSubmissionId: number; data: { proof_urls: string[]; proof_screenshots: string[]; proof_notes?: string } }) =>
+      submitItemProof(itemSubmissionId, data),
+    onSuccess: (r) => {
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["my-assignment"] });
+        qc.invalidateQueries({ queryKey: ["my-tasks"] });
+        qc.invalidateQueries({ queryKey: ["task"] });
+        qc.invalidateQueries({ queryKey: ["unread-count"] });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+      } else toast.error(r.error);
+    },
+  });
+}
+
+// Admin per-item approve / reject. Invalidates wallet + leaderboard so the
+// submitter's points credit appears immediately in dashboard widgets.
+export function useReviewItemSubmission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemSubmissionId, action, reason }: { itemSubmissionId: number; action: "approve" | "reject"; reason?: string }) =>
+      reviewItemSubmission(itemSubmissionId, action, reason),
+    onSuccess: (r) => {
+      if (r.success) {
+        toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["pending-item-reviews"] });
+        qc.invalidateQueries({ queryKey: ["pending-reviews"] });
+        qc.invalidateQueries({ queryKey: ["task"] });
+        qc.invalidateQueries({ queryKey: ["my-assignment"] });
+        qc.invalidateQueries({ queryKey: ["my-balance"] });
+        qc.invalidateQueries({ queryKey: ["leaderboard"] });
+        qc.invalidateQueries({ queryKey: ["unread-count"] });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+        qc.invalidateQueries({ queryKey: ["my-tasks"] });
+        qc.invalidateQueries({ queryKey: ["tasks"] });
+      } else toast.error(r.error);
+    },
+  });
+}
+
+// Legacy submit hook — kept for any client code still passing an
+// assignmentId. Internally the server action resolves the right bundle
+// item and routes through submitItemProof.
 export function useSubmitProof() {
   const qc = useQueryClient();
   return useMutation({
@@ -109,7 +179,9 @@ export function useSubmitProof() {
     onSuccess: (r) => {
       if (r.success) {
         toast.success(r.message);
+        qc.invalidateQueries({ queryKey: ["my-assignment"] });
         qc.invalidateQueries({ queryKey: ["my-tasks"] });
+        qc.invalidateQueries({ queryKey: ["task"] });
         qc.invalidateQueries({ queryKey: ["unread-count"] });
         qc.invalidateQueries({ queryKey: ["notifications"] });
       } else toast.error(r.error);
@@ -117,6 +189,8 @@ export function useSubmitProof() {
   });
 }
 
+// Legacy review hook — assignment-level. Delegates server-side to
+// reviewItemSubmission once the right item is resolved.
 export function useReviewAssignment() {
   const qc = useQueryClient();
   return useMutation({
@@ -126,8 +200,11 @@ export function useReviewAssignment() {
       if (r.success) {
         toast.success(r.message);
         qc.invalidateQueries({ queryKey: ["pending-reviews"] });
+        qc.invalidateQueries({ queryKey: ["pending-item-reviews"] });
         qc.invalidateQueries({ queryKey: ["task"] });
+        qc.invalidateQueries({ queryKey: ["my-assignment"] });
         qc.invalidateQueries({ queryKey: ["my-balance"] });
+        qc.invalidateQueries({ queryKey: ["leaderboard"] });
         qc.invalidateQueries({ queryKey: ["unread-count"] });
         qc.invalidateQueries({ queryKey: ["notifications"] });
         qc.invalidateQueries({ queryKey: ["my-tasks"] });

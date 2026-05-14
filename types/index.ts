@@ -53,17 +53,35 @@ export interface LoginFormData {
   rememberMe: boolean;
 }
 
+// Per-item config the admin fills when creating a bundle task. One of these
+// per checked task_type. The "legacy" single-task path uses items.length === 1.
+export interface TaskBundleItemInput {
+  task_type_id: number;
+  points: number;
+  proof_type: import("./database").ProofType;
+  item_data: Record<string, string>;
+  // Only meaningful for the watch-video task type. seconds.
+  watch_duration_sec?: number | null;
+}
+
 export interface TaskFormData {
   title: string;
   description: string;
   ai_prompt?: string | null;
   platform_id: number;
-  task_type_id: number;
-  task_data: Record<string, string>;
+  // Bundle items — 1..N entries. Replaces the legacy single task_type_id +
+  // task_data + proof_type fields. We still set legacy mirrors server-side
+  // from items[0] for back-compat with dashboards / leaderboards reading the
+  // old columns directly.
+  items: TaskBundleItemInput[];
+  // Optional bonus credited only when EVERY item is approved.
+  completion_bonus: number;
   images: string[];
   urls: string[];
-  proof_type: import("./database").ProofType;
   point_budget: number;
+  // Mirror of (sum(items.points) + completion_bonus). Kept on the form so
+  // the admin sees the per-completion cost line — server recomputes from
+  // the items array on submit.
   points_per_completion: number;
   priority: import("./database").TaskPriority;
   deadline: string | null;
@@ -76,6 +94,12 @@ export interface TaskFormData {
   recurring_type: import("./database").RecurringType | null;
   recurring_end_date: string | null;
   max_completions: number | null;
+  // ---- legacy fields, kept optional during the bundle rollout ----
+  // task_type_id / task_data / proof_type are derived from items[0] now,
+  // but the edit form still reads them on first load to seed items[].
+  task_type_id?: number;
+  task_data?: Record<string, string>;
+  proof_type?: import("./database").ProofType;
 }
 
 export interface ProofSubmissionData {

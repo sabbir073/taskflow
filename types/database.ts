@@ -129,6 +129,9 @@ export interface Task {
   point_budget: number;
   points_per_completion: number;
   points_spent: number;
+  // Optional bonus credited when a worker gets every bundle item approved.
+  // 0 disables the bonus.
+  completion_bonus: number;
   approval_status: "approved" | "pending_approval" | "rejected_by_admin";
   priority: TaskPriority;
   deadline: string | null;
@@ -146,6 +149,26 @@ export interface Task {
   updated_at: string;
 }
 
+// One action item inside a bundle task. A bundle is just a Task with N
+// bundle_items (N >= 1). Pre-bundle tasks were backfilled to a single
+// bundle_item mirroring their original config (migration 047).
+export interface TaskBundleItem {
+  id: number;
+  task_id: number;
+  task_type_id: number;
+  sort_order: number;
+  points: number;
+  proof_type: ProofType;
+  item_data: Record<string, string>;
+  // Only meaningful when the joined task_types.slug === "watch-video".
+  // NULL means: fall back to legacy "wait for ENDED" behavior in the player.
+  watch_duration_sec: number | null;
+  created_at: string;
+  updated_at: string;
+  // Joined when fetched via getTaskById / pending-review queries.
+  task_types?: TaskType;
+}
+
 export interface TaskAssignment {
   id: number;
   task_id: number;
@@ -161,6 +184,31 @@ export interface TaskAssignment {
   points_awarded: number | null;
   created_at: string;
   updated_at: string;
+}
+
+// Per-item submission inside a bundle assignment. One row per (assignment,
+// bundle_item). The parent task_assignments row is derived state:
+//   - in_progress until every item is at least 'submitted'
+//   - submitted once every item is submitted (capacity cap checked here)
+//   - approved once every item is approved (completion_bonus paid here)
+//   - rejected once every item is rejected (rejection penalty fired here)
+export interface AssignmentItemSubmission {
+  id: number;
+  assignment_id: number;
+  bundle_item_id: number;
+  status: AssignmentStatus;
+  proof_urls: string[];
+  proof_screenshots: string[];
+  proof_notes: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  points_awarded: number | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined when fetched via getMyAssignmentForTaskWithItems / pending review.
+  task_bundle_items?: TaskBundleItem;
 }
 
 export interface Notification {

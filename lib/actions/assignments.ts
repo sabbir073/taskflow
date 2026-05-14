@@ -118,6 +118,14 @@ export async function acceptTask(assignmentId: number): Promise<ApiResponse> {
 
     await db.from("task_assignments").update({ status: "in_progress" } as never).eq("id", assignmentId);
 
+    // Promote every bundle-item submission row from 'pending' → 'in_progress'
+    // so the worker can start submitting items individually.
+    await db
+      .from("assignment_item_submissions")
+      .update({ status: "in_progress" } as never)
+      .eq("assignment_id", assignmentId)
+      .eq("status", "pending");
+
     // Fetch task title for the notification
     const { data: task } = await db.from("tasks").select("title").eq("id", record.task_id).single();
     const taskTitle = task ? String((task as Record<string, unknown>).title || "task") : "task";
@@ -140,9 +148,13 @@ export async function acceptTask(assignmentId: number): Promise<ApiResponse> {
   }
 }
 
-// ===== User: Submit proof (multiple URLs + screenshots) =====
-export async function submitProof(
-  assignmentId: number,
+// ===== User: Submit proof for one bundle item =====
+// This is the canonical "submit proof" entry point. It validates ownership +
+// per-item proof requirements, then delegates to the
+// submit_item_proof_if_capacity RPC which handles capacity locking, parent-
+// status recompute, and sibling cancellation atomically.
+export async function submitItemProof(
+  itemSubmissionId: number,
   data: { proof_urls: string[]; proof_screenshots: string[]; proof_notes?: string }
 ): Promise<ApiResponse> {
   try {
@@ -157,81 +169,134 @@ export async function submitProof(
     const subErr = await checkActiveSubscription(db, session.user.id);
     if (subErr) return { success: false, error: subErr };
 
-    const { data: assignment } = await db.from("task_assignments").select("id, user_id, status, task_id").eq("id", assignmentId).single();
-    if (!assignment) return { success: false, error: "Assignment not found" };
-    const record = assignment as Record<string, unknown>;
+    // Resolve the item -> bundle item, parent assignment, parent task.
+    const { data: itemRow } = await db
+      .from("assignment_item_submissions")
+      .select(
+        "id, status, bundle_item_id, assignment_id, " +
+        "task_bundle_items!inner(id, proof_type, task_id, task_types!inner(slug))," +
+        "task_assignments!inner(id, user_id, status, task_id, tasks!inner(title))"
+      )
+      .eq("id", itemSubmissionId)
+      .single();
 
-    if (record.user_id !== session.user.id) return { success: false, error: "Unauthorized" };
-    if (record.status === "cancelled") return { success: false, error: "This task is no longer available" };
-    if (!["in_progress", "rejected"].includes(record.status as string)) return { success: false, error: "Task is not in a submittable state" };
+    if (!itemRow) return { success: false, error: "Item submission not found" };
+    const item = itemRow as unknown as Record<string, unknown>;
+    const assignment = item.task_assignments as Record<string, unknown>;
+    const bundleItem = item.task_bundle_items as Record<string, unknown>;
 
-    const taskId = record.task_id as number;
-
-    // Validate proof type - use task's own proof_type field. proof_type
-    // "none" (e.g. YouTube watch-video tasks) auto-submit with no proof.
-    const { data: task } = await db.from("tasks").select("title, proof_type").eq("id", taskId).single();
-    const taskRecord = (task as Record<string, unknown>) || {};
-    if (task) {
-      const proofType = String(taskRecord.proof_type || "both");
-      if (proofType !== "none") {
-        if ((proofType === "url" || proofType === "both") && (!data.proof_urls || data.proof_urls.length === 0))
-          return { success: false, error: "At least one URL proof is required" };
-        if ((proofType === "screenshot" || proofType === "both") && (!data.proof_screenshots || data.proof_screenshots.length === 0))
-          return { success: false, error: "At least one screenshot proof is required" };
-      }
+    if ((assignment.user_id as string) !== session.user.id) return { success: false, error: "Unauthorized" };
+    if (assignment.status === "cancelled") return { success: false, error: "This task is no longer available" };
+    if (["approved", "cancelled"].includes(item.status as string)) {
+      return { success: false, error: "This item is not in a submittable state" };
     }
 
-    // Atomic capacity-check + status update + sibling cancellation. The
-    // RPC takes a row lock on the parent task so concurrent submitters
-    // can't race past the max-completions cap. See migration
-    // 041_submit_proof_atomic.
-    const { data: rpcResult, error: rpcErr } = await db.rpc("submit_proof_if_capacity", {
-      p_assignment_id: assignmentId,
+    // Per-item proof-type validation. 'none' (auto-submitted, e.g. YouTube
+    // watch-video on duration completion) bypasses URL/screenshot checks.
+    const proofType = String(bundleItem.proof_type || "both");
+    if (proofType !== "none") {
+      if ((proofType === "url" || proofType === "both") && (!data.proof_urls || data.proof_urls.length === 0))
+        return { success: false, error: "At least one URL proof is required" };
+      if ((proofType === "screenshot" || proofType === "both") && (!data.proof_screenshots || data.proof_screenshots.length === 0))
+        return { success: false, error: "At least one screenshot proof is required" };
+    }
+
+    const { data: rpcResult, error: rpcErr } = await db.rpc("submit_item_proof_if_capacity", {
+      p_assignment_id: assignment.id,
+      p_bundle_item_id: bundleItem.id,
       p_proof_urls: data.proof_urls || [],
       p_proof_screenshots: data.proof_screenshots || [],
       p_proof_notes: data.proof_notes || null,
     } as never);
+
     if (rpcErr) {
-      console.error("[submitProof] rpc failed", rpcErr);
+      console.error("[submitItemProof] rpc failed", rpcErr);
       return { success: false, error: "Failed to submit proof" };
     }
     const result = (rpcResult || {}) as Record<string, unknown>;
     if (!result.success) {
       const code = String(result.code || "");
       if (code === "cap_reached") return { success: false, error: "This task has reached its submission limit" };
-      if (code === "wrong_status") return { success: false, error: "Task is not in a submittable state" };
+      if (code === "wrong_status") return { success: false, error: "Item is not in a submittable state" };
       if (code === "not_found") return { success: false, error: "Assignment not found" };
       return { success: false, error: "Failed to submit proof" };
     }
 
-    // Notify all admins + moderators in real-time that a proof needs review
+    // Notify staff in real-time that an item needs review. We fan out per
+    // submission so admins see every item that lands instead of waiting for
+    // the whole bundle to be done.
     const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
     const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
+    const taskId = bundleItem.task_id as number;
+    const taskTitle = String((assignment.tasks as Record<string, unknown> | undefined)?.title || "a task");
+    const typeName = String((bundleItem.task_types as Record<string, unknown> | undefined)?.slug || "");
     if (adminIds.length > 0) {
       const submitterName = session.user.name || "A user";
-      const taskTitle = String(taskRecord.title || "a task");
       const notifs = adminIds.map((uid) => ({
         user_id: uid,
         type: "system",
-        title: "Proof Submitted — Review Needed",
-        message: `${submitterName} submitted proof for "${taskTitle}". Please review.`,
+        title: "Item submitted — Review Needed",
+        message: `${submitterName} submitted "${typeName || "an action"}" for "${taskTitle}". Please review.`,
         link: `/tasks/${taskId}`,
-        data: { assignment_id: assignmentId, task_id: taskId, submitted_by: session.user.id },
+        data: {
+          assignment_id: assignment.id,
+          task_id: taskId,
+          item_submission_id: itemSubmissionId,
+          submitted_by: session.user.id,
+        },
       }));
       await db.from("notifications").insert(notifs as never[]);
     }
 
-    return { success: true, message: "Proof submitted for review" };
+    return {
+      success: true,
+      message: result.parent_status === "submitted" ? "Bundle fully submitted — awaiting review" : "Item submitted for review",
+    };
   } catch (err) {
-
     console.error(err);
     return { success: false, error: "Failed to submit proof" };
   }
 }
 
-// ===== Admin: Review assignment =====
-export async function reviewAssignment(
+// ===== Legacy shim: submitProof (assignment-level) =====
+// Old client code (and the legacy `useSubmitProof` hook) call this with an
+// assignment_id. For bundle-of-1 tasks we look up the single item and
+// delegate to submitItemProof. Once every caller is on the new hook we can
+// delete this.
+export async function submitProof(
   assignmentId: number,
+  data: { proof_urls: string[]; proof_screenshots: string[]; proof_notes?: string }
+): Promise<ApiResponse> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  const db = getServerClient();
+
+  // Find the item submission for this assignment that isn't terminal yet.
+  // For bundle-of-1 this is the only item; for multi-item bundles the
+  // legacy caller can't disambiguate, so we pick the first in-progress /
+  // rejected row by sort_order.
+  const { data: itemRow } = await db
+    .from("assignment_item_submissions")
+    .select("id, task_bundle_items!inner(sort_order)")
+    .eq("assignment_id", assignmentId)
+    .in("status", ["in_progress", "rejected", "pending", "submitted"])
+    .order("task_bundle_items(sort_order)", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!itemRow) return { success: false, error: "No submittable item found for this assignment" };
+  const item = itemRow as unknown as Record<string, unknown>;
+  return submitItemProof(item.id as number, data);
+}
+
+// ===== Admin: Review one bundle item =====
+// Canonical per-item review entry point. Approval pays the item's points;
+// rejection records a reason. The underlying RPCs handle wallet, audit-side
+// effects, finalisation of the parent assignment, the completion bonus on
+// the final approval, and the rejection penalty when every item ends
+// rejected.
+export async function reviewItemSubmission(
+  itemSubmissionId: number,
   action: "approve" | "reject",
   reason?: string
 ): Promise<ApiResponse> {
@@ -241,101 +306,157 @@ export async function reviewAssignment(
     if (!isStaffRole(session.user.role)) return { success: false, error: "Unauthorized" };
 
     const db = getServerClient();
-    const { data: assignment } = await db.from("task_assignments").select("id, user_id, status, task_id").eq("id", assignmentId).single();
-    if (!assignment) return { success: false, error: "Assignment not found" };
-    const record = assignment as Record<string, unknown>;
 
-    if (record.status !== "submitted") return { success: false, error: "Only submitted assignments can be reviewed" };
+    // Load context needed for budget guard + notification copy.
+    const { data: itemRow } = await db
+      .from("assignment_item_submissions")
+      .select(
+        "id, status, points_awarded, assignment_id, " +
+        "task_bundle_items!inner(id, points, task_id, task_types!inner(name, slug))," +
+        "task_assignments!inner(id, user_id, status, task_id, tasks!inner(title, point_budget, points_spent, completion_bonus))"
+      )
+      .eq("id", itemSubmissionId)
+      .single();
+    if (!itemRow) return { success: false, error: "Item submission not found" };
+    const item = itemRow as unknown as Record<string, unknown>;
+    const bundleItem = item.task_bundle_items as Record<string, unknown>;
+    const assignment = item.task_assignments as Record<string, unknown>;
+    const task = assignment.tasks as Record<string, unknown>;
+    const taskTypes = bundleItem.task_types as Record<string, unknown> | undefined;
+
+    const taskId = task ? Number(bundleItem.task_id) : 0;
+    const submitterId = assignment.user_id as string;
+    const taskTitle = String(task?.title || "a task");
+    const typeName = String(taskTypes?.name || taskTypes?.slug || "");
 
     if (action === "approve") {
-      // Get task details for points transfer
-      const { data: task } = await db.from("tasks").select("points_per_completion, point_budget, points_spent, created_by").eq("id", record.task_id).single();
-      if (!task) return { success: false, error: "Task not found" };
-      const t = task as Record<string, unknown>;
+      if (item.status === "approved") return { success: false, error: "Item already approved" };
+      if (item.status !== "submitted" && item.status !== "rejected")
+        return { success: false, error: "Only submitted (or previously rejected) items can be approved" };
 
-      const pointsToAward = Number(t.points_per_completion || 0);
-      const currentSpent = Number(t.points_spent || 0);
-      const budget = Number(t.point_budget || 0);
+      const itemPoints = Number(bundleItem.points || 0);
+      const currentSpent = Number(task?.points_spent || 0);
+      const budget = Number(task?.point_budget || 0);
+      const bonus = Number(task?.completion_bonus || 0);
 
-      // Verify budget is available
-      if (currentSpent + pointsToAward > budget) {
-        return { success: false, error: "Task budget exhausted - cannot approve more submissions" };
+      // Worst-case budget check: this approval AND a future bonus might both
+      // pay out (we can't tell from here if this is the final item). Refuse
+      // up front rather than crediting and then failing on the bonus.
+      if (currentSpent + itemPoints > budget) {
+        return { success: false, error: "Task budget exhausted — cannot approve more submissions" };
+      }
+      if (bonus > 0 && currentSpent + itemPoints + bonus > budget) {
+        // Soft warning: still allow approval but note bonus may not pay if
+        // every item lands. Plan-level safeguard is the create-form
+        // pre-publish validation; this is the runtime guard.
+        // (Continue with approval; bonus path inside RPC will refuse if it
+        // would breach budget.)
       }
 
-      const submitterId = record.user_id as string;
-
-      // 1. Mark assignment as approved
-      await db.from("task_assignments").update({
-        status: "approved",
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: session.user.id,
-        points_awarded: pointsToAward,
-      } as never).eq("id", assignmentId);
-
-      // 2. CREDIT the submitter's wallet atomically (handles concurrent
-      // approvals — the RPC updates total_points AND inserts points_history
-      // inside a single transaction, so two parallel approvals can't both
-      // read the same balance and overwrite each other).
-      await db.rpc("adjust_user_points", {
-        p_user_id: submitterId,
-        p_delta: pointsToAward,
-        p_action: "task_completed",
-        p_description: `Task completed and approved (+${pointsToAward.toFixed(2)} pts)`,
-        p_reference_type: "task_assignment",
-        p_reference_id: String(assignmentId),
+      const { data: rpcResult, error: rpcErr } = await db.rpc("approve_item_and_finalize", {
+        p_item_submission_id: itemSubmissionId,
+        p_reviewer_id: session.user.id,
       } as never);
-
-      // 3. Bump the submitter's tasks_completed counter (non-financial, safe)
-      const { data: submitterProfile } = await db.from("profiles").select("tasks_completed").eq("user_id", submitterId).single();
-      if (submitterProfile) {
-        const newTaskCount = Number((submitterProfile as Record<string, unknown>).tasks_completed || 0) + 1;
-        await db.from("profiles").update({ tasks_completed: newTaskCount } as never).eq("user_id", submitterId);
+      if (rpcErr) {
+        console.error("[reviewItemSubmission] approve rpc failed", rpcErr);
+        return { success: false, error: "Failed to approve item" };
       }
+      const r = (rpcResult || {}) as Record<string, unknown>;
+      if (!r.success) {
+        const code = String(r.code || "");
+        if (code === "already_approved") return { success: false, error: "Item already approved" };
+        if (code === "wrong_status") return { success: false, error: "Item is not in a reviewable state" };
+        if (code === "not_found") return { success: false, error: "Item submission not found" };
+        return { success: false, error: "Failed to approve item" };
+      }
+      const bonusPaid = !!r.bonus_paid;
+      const parentFinalized = !!r.parent_finalized;
 
-      // 4. Update task's points_spent counter
-      await db.from("tasks").update({
-        points_spent: currentSpent + pointsToAward,
-      } as never).eq("id", record.task_id);
-
-      // 5. Notify the submitter
+      // Notify the submitter
       await db.from("notifications").insert({
         user_id: submitterId,
-        type: "task_approved",
-        title: "Task Approved!",
-        message: `Your submission was approved. You earned ${pointsToAward.toFixed(2)} points.`,
-        link: `/tasks/${record.task_id}`,
-        data: { assignment_id: assignmentId, points: pointsToAward },
+        type: "points_earned",
+        title: parentFinalized ? "Bundle complete!" : "Item approved",
+        message: parentFinalized
+          ? bonusPaid
+            ? `All items approved for "${taskTitle}". You earned a ${bonus.toFixed(2)} completion bonus.`
+            : `All items approved for "${taskTitle}".`
+          : `Your "${typeName}" submission was approved (+${itemPoints.toFixed(2)} pts).`,
+        link: `/tasks/${taskId}`,
+        data: {
+          assignment_id: assignment.id,
+          item_submission_id: itemSubmissionId,
+          points: itemPoints,
+          bonus_paid: bonusPaid,
+        },
       } as never);
 
-      return { success: true, message: `Approved — ${pointsToAward.toFixed(2)} points transferred to user` };
+      return {
+        success: true,
+        message: parentFinalized
+          ? bonusPaid
+            ? `Bundle complete — ${(itemPoints + bonus).toFixed(2)} pts transferred (incl. bonus)`
+            : `Bundle complete — ${itemPoints.toFixed(2)} pts transferred`
+          : `Item approved — ${itemPoints.toFixed(2)} pts transferred`,
+      };
     } else {
       if (!reason) return { success: false, error: "Rejection reason is required" };
 
-      await db.from("task_assignments").update({
-        status: "rejected",
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: session.user.id,
-        rejection_reason: reason,
-      } as never).eq("id", assignmentId);
-
-      // Atomic, race-safe penalty. The Postgres function takes a row lock
-      // on the user's profile, counts rejected assignments for this
-      // (task, user), and applies the penalty exactly once on the third
-      // rejection — guarded by an idempotency check on points_history so
-      // concurrent rejections (e.g. two admins clicking at the same time)
-      // can't double-charge. See migration 038_rejection_penalty_atomic.
-      await db.rpc("apply_rejection_penalty_if_threshold", {
-        p_task_id: record.task_id,
-        p_user_id: record.user_id,
+      const { data: rpcResult, error: rpcErr } = await db.rpc("reject_item", {
+        p_item_submission_id: itemSubmissionId,
+        p_reviewer_id: session.user.id,
+        p_reason: reason,
       } as never);
+      if (rpcErr) {
+        console.error("[reviewItemSubmission] reject rpc failed", rpcErr);
+        return { success: false, error: "Failed to reject item" };
+      }
+      const r = (rpcResult || {}) as Record<string, unknown>;
+      if (!r.success) {
+        return { success: false, error: "Failed to reject item" };
+      }
+
+      // Notify the submitter so they can resubmit just this item.
+      await db.from("notifications").insert({
+        user_id: submitterId,
+        type: "task_rejected",
+        title: r.all_rejected ? "Bundle rejected" : "Item rejected",
+        message: r.all_rejected
+          ? `All items rejected for "${taskTitle}". Reason: ${reason}`
+          : `Your "${typeName}" submission was rejected. Reason: ${reason}. You can resubmit this item.`,
+        link: `/tasks/${taskId}`,
+        data: { assignment_id: assignment.id, item_submission_id: itemSubmissionId, reason },
+      } as never);
+
+      return { success: true, message: r.all_rejected ? "Bundle rejected" : "Item rejected" };
     }
-
-    return { success: true, message: "Assignment rejected" };
   } catch (err) {
-
     console.error(err);
-    return { success: false, error: "Failed to review assignment" };
+    return { success: false, error: "Failed to review item" };
   }
+}
+
+// ===== Legacy shim: reviewAssignment (assignment-level approve/reject) =====
+// Resolves the assignment's currently-pending bundle item submission and
+// delegates to reviewItemSubmission. Designed for bundle-of-1 callers and
+// any in-flight client sessions that still hold the old hook.
+export async function reviewAssignment(
+  assignmentId: number,
+  action: "approve" | "reject",
+  reason?: string
+): Promise<ApiResponse> {
+  const db = getServerClient();
+  const { data: itemRow } = await db
+    .from("assignment_item_submissions")
+    .select("id, task_bundle_items!inner(sort_order)")
+    .eq("assignment_id", assignmentId)
+    .eq("status", "submitted")
+    .order("task_bundle_items(sort_order)", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!itemRow) return { success: false, error: "No reviewable submission found for this assignment" };
+  const item = itemRow as unknown as Record<string, unknown>;
+  return reviewItemSubmission(item.id as number, action, reason);
 }
 
 // ===== Admin: Get pending reviews =====
@@ -353,6 +474,81 @@ export async function getPendingReviews(params?: PaginationParams): Promise<Pagi
     .range(offset, offset + pageSize - 1);
 
   return { data: (data || []) as Record<string, unknown>[], total: count || 0, page, pageSize, totalPages: Math.ceil((count || 0) / pageSize) };
+}
+
+// ===== Get current user's assignment + per-item submissions for a task =====
+// Canonical fetch for the worker-facing task detail page. Returns the parent
+// assignment along with every bundle-item submission (joined with the bundle
+// item config + task_type info needed for rendering).
+export async function getMyAssignmentForTaskWithItems(taskId: number): Promise<{
+  assignment: Record<string, unknown>;
+  items: Record<string, unknown>[];
+} | null> {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+  const db = getServerClient();
+
+  const { data: assignment } = await db
+    .from("task_assignments")
+    .select("*")
+    .eq("task_id", taskId)
+    .eq("user_id", session.user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!assignment) return null;
+  const aRecord = assignment as Record<string, unknown>;
+
+  const { data: items } = await db
+    .from("assignment_item_submissions")
+    .select(
+      "*, task_bundle_items!inner(*, task_types(name, slug, required_fields, proof_type))"
+    )
+    .eq("assignment_id", aRecord.id)
+    .order("bundle_item_id", { ascending: true });
+
+  return {
+    assignment: aRecord,
+    items: (items || []) as unknown as Record<string, unknown>[],
+  };
+}
+
+// ===== Admin: pending per-item submissions for the review tab =====
+export async function getPendingItemReviews(
+  params?: PaginationParams
+): Promise<PaginatedResponse<Record<string, unknown>>> {
+  const session = await auth();
+  if (!session?.user?.id || !isStaffRole(session.user.role)) {
+    return { data: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+  }
+  const db = getServerClient();
+  const page = params?.page || 1;
+  const pageSize = params?.pageSize || 20;
+  const offset = (page - 1) * pageSize;
+
+  const { data, count } = await db
+    .from("assignment_item_submissions")
+    .select(
+      "*," +
+      "task_bundle_items!inner(id, sort_order, points, proof_type, item_data, watch_duration_sec, task_types!inner(name, slug))," +
+      "task_assignments!inner(id, user_id, task_id, status," +
+        "tasks!inner(id, title, points_per_completion, completion_bonus, platform_id," +
+          "platforms!inner(name, icon))," +
+        "users!task_assignments_user_id_fkey(id, name, email, image)" +
+      ")",
+      { count: "exact" }
+    )
+    .eq("status", "submitted")
+    .order("submitted_at", { ascending: true })
+    .range(offset, offset + pageSize - 1);
+
+  return {
+    data: (data || []) as unknown as Record<string, unknown>[],
+    total: count || 0,
+    page,
+    pageSize,
+    totalPages: Math.ceil((count || 0) / pageSize),
+  };
 }
 
 // ===== Get current user's assignment for a specific task =====

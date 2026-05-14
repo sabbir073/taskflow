@@ -11,6 +11,9 @@ type YTPlayer = {
   unMute: () => void;
   isMuted: () => boolean;
   playVideo: () => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  getPlayerState: () => number;
 };
 
 type YTPlayerEvent = { data: number; target: YTPlayer };
@@ -78,6 +81,26 @@ export function extractYouTubeId(url: string): string | null {
   return null;
 }
 
+// "30 sec" / "1m 20s" / "5 min" — kept terse so the header label stays one line.
+function formatSeconds(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s} sec`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (rem === 0) return `${m} min`;
+  return `${m}m ${rem}s`;
+}
+
+// YouTube-style "M:SS" / "H:MM:SS" clock for the elapsed-of-total counter.
+function formatClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(r)}` : `${m}:${pad(r)}`;
+}
+
 const BLOCKED_KEYS = new Set([
   " ", "Spacebar", "k", "K", // play/pause toggles
   "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", // seek + volume bypass
@@ -91,10 +114,14 @@ const BLOCKED_KEYS = new Set([
 
 export function YoutubeWatchModal({
   videoUrl,
+  watchDurationSec,
   onCompleted,
   onClose,
 }: {
   videoUrl: string;
+  // Seconds of playback required to fire onCompleted. NULL falls back to
+  // the legacy "wait for ENDED state" behavior (whole-video required).
+  watchDurationSec?: number | null;
   onCompleted: () => void;
   onClose: () => void;
 }) {
@@ -104,8 +131,19 @@ export function YoutubeWatchModal({
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(false);
+  // Elapsed playback time tracked for the duration-based progress bar /
+  // auto-submit. Driven by a 1s setInterval that reads
+  // player.getCurrentTime() — that value only advances while the player is
+  // in PLAYING state, so pausing freezes the counter (can't be cheated).
+  const [elapsedSec, setElapsedSec] = useState(0);
+  // Full duration of the YouTube video, captured on player.ready. Used by
+  // the elapsed/total clock so the worker can see how long the whole video
+  // is even when only a portion is required to complete the task.
+  const [totalDurationSec, setTotalDurationSec] = useState(0);
 
   const videoId = extractYouTubeId(videoUrl);
+  // Round up so a fractional duration still finishes at the displayed mark.
+  const requiredSec = typeof watchDurationSec === "number" && watchDurationSec > 0 ? Math.ceil(watchDurationSec) : null;
 
   // Mount + create player.
   //
@@ -160,13 +198,19 @@ export function YoutubeWatchModal({
               try {
                 e.target.setVolume(volume);
                 e.target.playVideo();
+                // getDuration() is reliable once the player reports ready.
+                const dur = e.target.getDuration() || 0;
+                if (dur > 0) setTotalDurationSec(dur);
               } catch {
                 /* noop */
               }
             },
             onStateChange: (e: YTPlayerEvent) => {
-              // 0 = ENDED. We ignore PAUSED/BUFFERING/etc — only completion submits.
-              if (e.data === 0 && !completedRef.current) {
+              // When no watchDurationSec is set we fall back to the legacy
+              // "watch the whole video" behavior — wait for ENDED (state 0).
+              // When watchDurationSec IS set, the interval below handles
+              // completion; ENDED just stops the counter.
+              if (requiredSec === null && e.data === 0 && !completedRef.current) {
                 completedRef.current = true;
                 onCompleted();
               }
@@ -216,6 +260,37 @@ export function YoutubeWatchModal({
     return () => window.removeEventListener("keydown", handler, { capture: true });
   }, []);
 
+  // Elapsed-time + duration polling. Runs whenever the modal is open and the
+  // player is ready — even when no `watchDurationSec` is set, so the
+  // worker always sees the YouTube-style "M:SS / M:SS" clock. When a
+  // required duration IS set, this same tick also auto-submits once the
+  // worker hits it. getCurrentTime() only advances while playback is in
+  // PLAYING state, so pause / buffering won't tick (can't be cheated).
+  useEffect(() => {
+    if (loadState !== "ready") return;
+    const id = window.setInterval(() => {
+      const p = playerRef.current;
+      if (!p) return;
+      try {
+        const current = p.getCurrentTime() || 0;
+        setElapsedSec(current);
+        // Some videos report duration late — keep refreshing until non-zero.
+        const dur = p.getDuration() || 0;
+        if (dur > 0) {
+          setTotalDurationSec((prev) => (prev === dur ? prev : dur));
+        }
+        if (requiredSec !== null && !completedRef.current && current >= requiredSec) {
+          completedRef.current = true;
+          window.clearInterval(id);
+          onCompleted();
+        }
+      } catch {
+        /* noop — player may have been destroyed during teardown */
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [loadState, requiredSec, onCompleted]);
+
   // Volume slider → player
   function handleVolumeChange(next: number) {
     setVolume(next);
@@ -245,7 +320,11 @@ export function YoutubeWatchModal({
       <div className="flex flex-col w-full h-full sm:h-auto sm:max-w-3xl sm:rounded-2xl bg-black overflow-hidden shadow-2xl">
         {/* Header — close only. Closing does NOT submit. */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-black/60 border-b border-white/10">
-          <p className="text-sm font-semibold text-white/90">Watch the full video to complete this task</p>
+          <p className="text-sm font-semibold text-white/90">
+            {requiredSec !== null
+              ? `Watch at least ${formatSeconds(requiredSec)} to complete this task`
+              : "Watch the full video to complete this task"}
+          </p>
           <button
             type="button"
             onClick={onClose}
@@ -285,7 +364,27 @@ export function YoutubeWatchModal({
           />
         </div>
 
-        {/* Footer — volume controls only */}
+        {/* Watch-duration progress bar (only when watchDurationSec is set).
+            Shows the worker exactly how close they are to auto-submit. */}
+        {requiredSec !== null && (
+          <div className="flex-shrink-0 px-4 pt-3 bg-black/80">
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-mono text-white/70">
+              <span>{formatSeconds(Math.min(elapsedSec, requiredSec))} watched</span>
+              <span>{formatSeconds(requiredSec)} required</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-primary to-accent transition-[width] duration-700"
+                style={{ width: `${Math.min(100, (elapsedSec / requiredSec) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Footer — volume controls + YouTube-style elapsed/total clock.
+            The clock is read-only (no scrubber) so the player stays
+            uncheatable; it just lets the worker see how far into the video
+            they are. */}
         <div className="flex-shrink-0 flex items-center gap-3 px-4 py-3 bg-black/80 border-t border-white/10">
           <button
             type="button"
@@ -305,6 +404,12 @@ export function YoutubeWatchModal({
             className="flex-1 h-1.5 rounded-full accent-primary cursor-pointer"
           />
           <span className="text-[11px] font-mono text-white/60 w-9 text-right">{muted ? 0 : volume}%</span>
+          <span className="text-[11px] font-mono text-white/80 tabular-nums ml-2">
+            {formatClock(elapsedSec)}
+            {totalDurationSec > 0 && (
+              <span className="text-white/40"> / {formatClock(totalDurationSec)}</span>
+            )}
+          </span>
         </div>
       </div>
     </div>
