@@ -51,7 +51,7 @@ const authProxy = auth((req) => {
   // would skip the auth gate. The downstream layouts re-check, but the
   // proxy should be precise. We instead match a fixed list of static
   // asset extensions at the end of the path.
-  const STATIC_ASSET_RE = /\.(svg|png|jpe?g|gif|webp|ico|js|css|woff2?|ttf|map|json|txt|xml)$/i;
+  const STATIC_ASSET_RE = /\.(svg|png|jpe?g|gif|webp|ico|js|css|woff2?|ttf|map|json|webmanifest|txt|xml)$/i;
   if (
     pathname.startsWith(authApiPath) ||
     pathname.startsWith("/_next") ||

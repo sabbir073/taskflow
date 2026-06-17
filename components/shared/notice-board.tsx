@@ -58,6 +58,13 @@ export function NoticeBoard() {
   const activeIdxRef = useRef(activeIdx);
   useEffect(() => { activeIdxRef.current = activeIdx; }, [activeIdx]);
 
+  // `animating` also lives in a ref so slideTo's guard never reads a stale
+  // closed-over value when fired from the auto-rotate interval (the interval's
+  // slideTo is captured at effect-bind time — the closure froze the old
+  // activeIdx/animating, which previously blocked the wrap back to index 0 and
+  // stuck rotation on the last notice).
+  const animatingRef = useRef(false);
+
   // Track pending animation timers so unmount/dep-change can cancel them
   // and `animating` can never get stuck true.
   const animTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -68,6 +75,25 @@ export function NoticeBoard() {
     };
   }, []);
 
+  // Declared before the auto-rotate effect that references it. Guard on live
+  // refs, not the closed-over state, so the interval can always wrap back to
+  // index 0 and keep looping forever (the stale-closure guard was the bug).
+  function slideTo(idx: number) {
+    if (animatingRef.current || idx === activeIdxRef.current) return;
+    animatingRef.current = true;
+    setAnimating(true);
+    const t1 = setTimeout(() => {
+      activeIdxRef.current = idx; // fresh for the next interval tick
+      setActiveIdx(idx);
+      const t2 = setTimeout(() => {
+        animatingRef.current = false;
+        setAnimating(false);
+      }, 50);
+      animTimeoutsRef.current.push(t2);
+    }, 250);
+    animTimeoutsRef.current.push(t1);
+  }
+
   // Auto-rotate. Deps no longer include activeIdx — interval reads ref.
   useEffect(() => {
     if (items.length <= 1 || paused) return;
@@ -76,24 +102,16 @@ export function NoticeBoard() {
       slideTo(next);
     }, 5000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length, paused]);
 
   if (!enabled) return null;
   if (isLoading || items.length === 0) return null;
 
-  function slideTo(idx: number) {
-    if (animating || idx === activeIdx) return;
-    setAnimating(true);
-    const t1 = setTimeout(() => {
-      setActiveIdx(idx);
-      const t2 = setTimeout(() => setAnimating(false), 50);
-      animTimeoutsRef.current.push(t2);
-    }, 250);
-    animTimeoutsRef.current.push(t1);
-  }
-
-  const current = items[activeIdx] || items[0];
+  // Clamp at render so a deleted/deactivated notice can't strand us past the
+  // end of the array — keeps the loop and counter healthy without a setState
+  // effect (the auto-rotate interval also self-heals via its modulo wrap).
+  const safeIdx = activeIdx < items.length ? activeIdx : 0;
+  const current = items[safeIdx] || items[0];
 
   return (
     <>
@@ -126,13 +144,13 @@ export function NoticeBoard() {
             {items.length > 1 && (
               <div className="flex items-center gap-1 shrink-0">
                 <span className="text-[10px] text-muted-foreground font-mono tabular-nums mr-1">
-                  {String(activeIdx + 1).padStart(2, "0")}/{String(items.length).padStart(2, "0")}
+                  {String(safeIdx + 1).padStart(2, "0")}/{String(items.length).padStart(2, "0")}
                 </span>
-                <button type="button" aria-label="Previous notice" onClick={() => slideTo((activeIdx - 1 + items.length) % items.length)}
+                <button type="button" aria-label="Previous notice" onClick={() => slideTo((safeIdx - 1 + items.length) % items.length)}
                   className="p-1 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" aria-label="Next notice" onClick={() => slideTo((activeIdx + 1) % items.length)}
+                <button type="button" aria-label="Next notice" onClick={() => slideTo((safeIdx + 1) % items.length)}
                   className="p-1 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -170,7 +188,7 @@ export function NoticeBoard() {
                 {items.map((n, i) => (
                   <button key={n.id as number} type="button" aria-label={`Go to notice ${i + 1}`}
                     onClick={() => slideTo(i)}
-                    className={`rounded-full transition-all duration-300 ${i === activeIdx ? "w-5 h-1.5 bg-linear-to-r from-primary to-accent" : "w-1.5 h-1.5 bg-foreground/20 hover:bg-foreground/40"}`}
+                    className={`rounded-full transition-all duration-300 ${i === safeIdx ? "w-5 h-1.5 bg-linear-to-r from-primary to-accent" : "w-1.5 h-1.5 bg-foreground/20 hover:bg-foreground/40"}`}
                   />
                 ))}
               </div>
@@ -182,7 +200,7 @@ export function NoticeBoard() {
         {items.length > 1 && !paused && (
           <div className="h-0.5 bg-primary/10">
             <div
-              key={activeIdx}
+              key={safeIdx}
               className="h-full bg-linear-to-r from-primary to-accent"
               style={{ animation: "progress 5s linear forwards" }}
             />

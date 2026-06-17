@@ -67,9 +67,9 @@ export function PlansView() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div className="flex flex-wrap justify-center gap-4 sm:gap-6 max-w-5xl mx-auto">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Card key={i}><CardContent><div className="h-64 bg-muted rounded-xl animate-pulse" /></CardContent></Card>
+          <Card key={i} className="w-full sm:w-72 lg:w-80"><CardContent><div className="h-64 bg-muted rounded-xl animate-pulse" /></CardContent></Card>
         ))}
       </div>
     );
@@ -114,9 +114,10 @@ export function PlansView() {
           <p className="text-sm text-muted-foreground mt-1">Choose a plan that fits your team</p>
         </div>
         {/* pt-6 leaves room for the -top-3 "Most Popular" / "Current Plan"
-            ribbons. 2-col on tablet, 3-col on laptop+ so each card has room
-            for its dense content (period picker + 2x2 stats grid + features). */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto pt-6">
+            ribbons. Centered flex-wrap so 1 plan sits in the middle and 2/3
+            balance from the centre to both sides (instead of left-aligning).
+            Each card has a fixed width: 1-up mobile, 2-up tablet, 3-up laptop+. */}
+        <div className="flex flex-wrap justify-center gap-4 sm:gap-6 max-w-5xl mx-auto pt-6">
           {planList.map((plan, i) => {
             const id = plan.id as number;
             const name = String(plan.name || "");
@@ -146,7 +147,7 @@ export function PlansView() {
             const isFree = displayPrice === 0;
 
             return (
-              <Card key={id} className={`relative overflow-visible ${isPopular ? "border-primary shadow-xl shadow-primary/10 lg:scale-[1.02]" : ""} ${isCurrent ? "ring-2 ring-success/40" : ""}`}>
+              <Card key={id} className={`relative overflow-visible w-full sm:w-72 lg:w-80 ${isPopular ? "border-primary shadow-xl shadow-primary/10 lg:scale-[1.02]" : ""} ${isCurrent ? "ring-2 ring-success/40" : ""}`}>
                 {isPopular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 sm:px-4 py-1 rounded-full bg-primary text-white text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow-lg shadow-primary/30 whitespace-nowrap z-10">
                     <Sparkles className="w-3 h-3" /> Most Popular
@@ -265,7 +266,7 @@ export function PlansView() {
             </h2>
             <p className="text-sm text-muted-foreground mt-1">Top up your wallet with extra credits</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
+          <div className="flex flex-wrap justify-center gap-4 max-w-5xl mx-auto">
             {packages.map((p) => {
               const id = p.id as number;
               const name = String(p.name || "");
@@ -275,7 +276,7 @@ export function PlansView() {
               const description = String(p.description || "");
 
               return (
-                <Card key={id} className="hover:shadow-md hover:-translate-y-0.5 transition-all">
+                <Card key={id} className="w-full sm:w-72 hover:shadow-md hover:-translate-y-0.5 transition-all">
                   <CardContent className="p-5 sm:p-6 space-y-4">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-xl bg-linear-to-br from-warning/20 to-primary/20 flex items-center justify-center shrink-0">
