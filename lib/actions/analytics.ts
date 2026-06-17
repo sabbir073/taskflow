@@ -33,7 +33,7 @@ export async function getAdminDashboardStats() {
 
 export async function getUserDashboardStats() {
   const session = await auth();
-  if (!session?.user?.id) return { myTasks: 0, pendingTasks: 0, totalPoints: 0, currentRank: 0 };
+  if (!session?.user?.id) return { myTasks: 0, pendingTasks: 0, totalPoints: 0, currentRank: 0, tasksCompleted: 0, streak: 0 };
   const db = getServerClient();
   const userId = session.user.id;
   // Rank now resolves on the database via RANK() OVER (...) so we don't
@@ -42,12 +42,17 @@ export async function getUserDashboardStats() {
   const [myTasks, pendingTasks, profile, rankResult] = await Promise.all([
     db.from("task_assignments").select("id", { count: "exact", head: true }).eq("user_id", userId),
     db.from("task_assignments").select("id", { count: "exact", head: true }).eq("user_id", userId).in("status", ["pending", "in_progress"]),
-    db.from("profiles").select("total_points").eq("user_id", userId).single(),
+    // Widened from total_points only — tasks_completed + current_streak feed the
+    // dashboard "Your Progress" widget (milestone bar + streak) at no extra query cost.
+    db.from("profiles").select("total_points, tasks_completed, current_streak").eq("user_id", userId).single(),
     db.rpc("get_user_rank", { p_user_id: userId } as never),
   ]);
-  const totalPoints = profile.data ? Number((profile.data as Record<string, unknown>).total_points) : 0;
+  const p = (profile.data || {}) as Record<string, unknown>;
+  const totalPoints = Number(p.total_points || 0);
+  const tasksCompleted = Number(p.tasks_completed || 0);
+  const streak = Number(p.current_streak || 0);
   const currentRank = Number(rankResult.data || 0);
-  return { myTasks: myTasks.count || 0, pendingTasks: pendingTasks.count || 0, totalPoints, currentRank };
+  return { myTasks: myTasks.count || 0, pendingTasks: pendingTasks.count || 0, totalPoints, currentRank, tasksCompleted, streak };
 }
 
 // `userId` scopes the feed to that user's own assignments — used for the

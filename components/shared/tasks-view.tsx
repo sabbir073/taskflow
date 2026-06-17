@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, Input, Select, Btn, Badge } from "@/components/ui";
 import {
   Search, Clock, CheckCircle, XCircle, Plus, Coins,
-  ExternalLink, Image as ImageIcon, FileText,
+  ExternalLink, Image as ImageIcon, FileText, ListTodo,
 } from "lucide-react";
 import { useTasks, useMyTasks, useApproveTask, useRejectTask, useReviewItemSubmission, usePendingItemReviews, useDeleteTask, useAcceptTask } from "@/hooks/use-tasks";
 import { EmptyState } from "./empty-state";
@@ -287,7 +287,7 @@ function DoableTaskRow({
   const earned = Number(item.points_awarded || 0);
 
   return (
-    <Card className="overflow-hidden hover:shadow-md transition-all">
+    <Card className="overflow-hidden border-border/60 shadow-none hover:border-primary/30 hover:shadow-sm transition-all">
       {/* DESKTOP — original */}
       <div className="hidden sm:block">
         <CardContent className="p-4">
@@ -393,8 +393,13 @@ export function DoableTasksPreview({ limit = 5 }: { limit?: number }) {
   return (
     <Card className="mb-8">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Available Tasks {total > 0 && <span className="text-sm font-normal text-muted-foreground ml-1">({total})</span>}</CardTitle>
-        <Link href="/tasks" className="text-xs text-primary hover:underline flex items-center gap-1">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-linear-to-br from-primary to-accent flex items-center justify-center shadow-sm shadow-primary/30 shrink-0">
+            <ListTodo className="w-4 h-4 text-white" />
+          </div>
+          <CardTitle>Available Tasks {total > 0 && <span className="text-sm font-normal text-muted-foreground ml-1">({total})</span>}</CardTitle>
+        </div>
+        <Link href="/tasks" className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0">
           View all <ExternalLink className="w-3 h-3" />
         </Link>
       </CardHeader>
