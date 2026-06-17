@@ -67,7 +67,7 @@ export function PlansView() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {Array.from({ length: 3 }).map((_, i) => (
           <Card key={i}><CardContent><div className="h-64 bg-muted rounded-xl animate-pulse" /></CardContent></Card>
         ))}
@@ -75,22 +75,49 @@ export function PlansView() {
     );
   }
 
+  // Admin hasn't configured any plans yet — render a clear empty state
+  // instead of a section heading sitting above a blank grid.
+  const planList = plans || [];
+  if (planList.length === 0 && (!packages || packages.length === 0)) {
+    return (
+      <Card className="max-w-xl mx-auto">
+        <CardContent className="py-10 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center mx-auto">
+            <Package className="w-6 h-6 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="font-semibold">No plans available yet</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              The admin hasn&apos;t configured subscription plans or point packages. Check back later.
+            </p>
+          </div>
+          <Link href="/dashboard">
+            <Btn variant="outline" size="sm">Back to dashboard</Btn>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       {/* Current plan + quota card */}
       {quota && quota.planName && (
         <QuotaCard quota={quota} />
       )}
 
       {/* Subscription plans */}
+      {planList.length > 0 && (
       <section>
         <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold">Subscription Plans</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold">Subscription Plans</h2>
           <p className="text-sm text-muted-foreground mt-1">Choose a plan that fits your team</p>
         </div>
-        {/* pt-6 leaves room for the -top-3 "Most Popular" / "Current Plan" ribbons */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto pt-6">
-          {(plans || []).map((plan, i) => {
+        {/* pt-6 leaves room for the -top-3 "Most Popular" / "Current Plan"
+            ribbons. 2-col on tablet, 3-col on laptop+ so each card has room
+            for its dense content (period picker + 2x2 stats grid + features). */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto pt-6">
+          {planList.map((plan, i) => {
             const id = plan.id as number;
             const name = String(plan.name || "");
             const currency = String(plan.currency || "usd");
@@ -119,35 +146,37 @@ export function PlansView() {
             const isFree = displayPrice === 0;
 
             return (
-              <Card key={id} className={`relative overflow-visible ${isPopular ? "border-primary shadow-xl shadow-primary/10 md:scale-[1.02]" : ""} ${isCurrent ? "ring-2 ring-success/40" : ""}`}>
+              <Card key={id} className={`relative overflow-visible ${isPopular ? "border-primary shadow-xl shadow-primary/10 lg:scale-[1.02]" : ""} ${isCurrent ? "ring-2 ring-success/40" : ""}`}>
                 {isPopular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-primary text-white text-[11px] font-bold flex items-center gap-1 shadow-lg shadow-primary/30 whitespace-nowrap z-10">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 sm:px-4 py-1 rounded-full bg-primary text-white text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow-lg shadow-primary/30 whitespace-nowrap z-10">
                     <Sparkles className="w-3 h-3" /> Most Popular
                   </div>
                 )}
                 {isCurrent && !isPopular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-success text-white text-[11px] font-bold flex items-center gap-1 shadow-lg shadow-success/30 whitespace-nowrap z-10">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 sm:px-4 py-1 rounded-full bg-success text-white text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow-lg shadow-success/30 whitespace-nowrap z-10">
                     <CheckCircle className="w-3 h-3" /> Current Plan
                   </div>
                 )}
                 {isCurrent && isPopular && (
-                  <div className="absolute -top-3 right-4 px-3 py-1 rounded-full bg-success text-white text-[11px] font-bold whitespace-nowrap z-10 shadow-lg shadow-success/30">
+                  <div className="absolute -top-3 right-4 px-3 py-1 rounded-full bg-success text-white text-[10px] sm:text-[11px] font-bold whitespace-nowrap z-10 shadow-lg shadow-success/30">
                     Current
                   </div>
                 )}
-                <CardContent className="p-8">
-                  <h3 className="text-xl font-bold">{name}</h3>
+                <CardContent className="p-5 sm:p-6 lg:p-8">
+                  <h3 className="text-lg sm:text-xl font-bold">{name}</h3>
                   {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
 
-                  {/* Period picker */}
+                  {/* Period picker — flex-based so 2-tier plans don't leave
+                      an empty grid cell. Each pill claims equal width via
+                      flex-1 / basis-0 within a rounded-xl track. */}
                   {tiers.length > 1 && (
-                    <div className="grid grid-cols-3 gap-1 mt-4 p-1 rounded-xl bg-muted">
+                    <div className="flex gap-1 mt-4 p-1 rounded-xl bg-muted">
                       {tiers.map((t) => (
                         <button
                           key={t.key}
                           type="button"
                           onClick={() => setSelectedPeriods((prev) => ({ ...prev, [id]: t.key }))}
-                          className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                          className={`flex-1 basis-0 min-w-0 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors text-center ${
                             selectedPeriod === t.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                           }`}
                         >
@@ -158,8 +187,8 @@ export function PlansView() {
                   )}
 
                   <div className="mt-4 mb-6">
-                    <span className="text-4xl font-bold">{isFree ? "Free" : `${sym}${displayPrice.toFixed(0)}`}</span>
-                    {!isFree && <span className="text-muted-foreground"> / {PERIOD_LABEL[selectedPeriod].toLowerCase()}</span>}
+                    <span className="text-3xl sm:text-4xl font-bold">{isFree ? "Free" : `${sym}${displayPrice.toFixed(0)}`}</span>
+                    {!isFree && <span className="text-sm sm:text-base text-muted-foreground"> / {PERIOD_LABEL[selectedPeriod].toLowerCase()}</span>}
                   </div>
 
                   {/* Structured limits */}
@@ -225,17 +254,18 @@ export function PlansView() {
           })}
         </div>
       </section>
+      )}
 
       {/* Buy extra points */}
       {(packages && packages.length > 0) && (
         <section>
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold flex items-center justify-center gap-2">
+            <h2 className="text-2xl sm:text-3xl font-bold flex items-center justify-center gap-2">
               <Coins className="w-6 h-6 text-warning" /> Buy Extra Points
             </h2>
             <p className="text-sm text-muted-foreground mt-1">Top up your wallet with extra credits</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
             {packages.map((p) => {
               const id = p.id as number;
               const name = String(p.name || "");
@@ -246,23 +276,23 @@ export function PlansView() {
 
               return (
                 <Card key={id} className="hover:shadow-md hover:-translate-y-0.5 transition-all">
-                  <CardContent className="p-6 space-y-4">
+                  <CardContent className="p-5 sm:p-6 space-y-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warning/20 to-primary/20 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-xl bg-linear-to-br from-warning/20 to-primary/20 flex items-center justify-center shrink-0">
                         <Package className="w-5 h-5 text-warning" />
                       </div>
-                      <div>
-                        <p className="font-semibold">{name}</p>
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{name}</p>
                         <Badge variant="warning">{currency.toUpperCase()}</Badge>
                       </div>
                     </div>
                     <div>
-                      <p className="text-3xl font-bold text-primary">{points.toFixed(0)} pts</p>
+                      <p className="text-2xl sm:text-3xl font-bold text-primary">{points.toFixed(0)} pts</p>
                       <p className="text-sm text-muted-foreground mt-1">
                         for <span className="font-semibold text-foreground">{price.toFixed(2)} {currency.toUpperCase()}</span>
                       </p>
                     </div>
-                    {description && <p className="text-xs text-muted-foreground">{description}</p>}
+                    {description && <p className="text-xs text-muted-foreground line-clamp-2">{description}</p>}
                     <Btn
                       className="w-full"
                       onClick={() => setPayTarget({ kind: "package", packageId: id, name, points, price, currency })}

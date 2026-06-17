@@ -73,7 +73,7 @@ export function LoginForm() {
         <div className="mx-8 mt-6 rounded-xl border border-warning/30 bg-gradient-to-br from-warning/10 via-warning/5 to-transparent p-4">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-warning/15 flex items-center justify-center shrink-0">
-              <Clock className="w-4.5 h-4.5 text-warning" />
+              <Clock className="w-5 h-5 text-warning" />
             </div>
             <div>
               <p className="font-semibold text-sm">Your account is awaiting approval</p>
@@ -91,7 +91,7 @@ export function LoginForm() {
         <div className="mx-8 mt-6 rounded-xl border border-error/30 bg-gradient-to-br from-error/10 via-error/5 to-transparent p-4">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-error/15 flex items-center justify-center shrink-0">
-              <ShieldAlert className="w-4.5 h-4.5 text-error" />
+              <ShieldAlert className="w-5 h-5 text-error" />
             </div>
             <div>
               <p className="font-semibold text-sm">Account blocked</p>

@@ -1,6 +1,60 @@
 export * from "./platforms";
 export * from "./roles";
 
+// Bundle category → display label. Shared between the admin Create form
+// (where it drives the Category dropdown) and the worker task cards (where
+// it renders as a small pill next to the platform badge). Source of truth
+// for the `tasks.category` enum from migration 051.
+export const CATEGORY_LABELS: Record<
+  "engagement" | "creation" | "review" | "music" | "maps" | "other",
+  string
+> = {
+  engagement: "Engagement",
+  creation:   "Creation",
+  review:     "Review",
+  music:      "Music",
+  maps:       "Maps",
+  other:      "Other",
+};
+
+// Long-form labels used in the admin Create-form dropdown — kept separate
+// from the compact-badge labels above so the worker grid stays terse.
+export const CATEGORY_LABELS_LONG: Record<keyof typeof CATEGORY_LABELS, string> = {
+  engagement: "Engagement — likes, comments, shares, follows",
+  creation:   "Content Creation — posts, videos, articles",
+  review:     "Reviews — ratings, written reviews",
+  music:      "Music Streaming",
+  maps:       "Local / Maps",
+  other:      "Other",
+};
+
+// ============================================================================
+// Task tier — derived label, NOT a schema column.
+// Drives the chip in the top-left of each task card. Cutoffs per user spec:
+//   ≥ 15 cr → Premium  (success/green)
+//   8–14 cr → Medium   (primary/purple)
+//   <  8 cr → Small    (warning/amber)
+// `total` = points_per_completion + completion_bonus, which is what the
+// worker actually earns for a full completion.
+// ============================================================================
+export type TaskTier = "Premium" | "Medium" | "Small";
+
+export function getTaskTier(
+  pointsPerCompletion: number,
+  completionBonus: number
+): TaskTier {
+  const total = (pointsPerCompletion || 0) + (completionBonus || 0);
+  if (total >= 15) return "Premium";
+  if (total >= 8) return "Medium";
+  return "Small";
+}
+
+export const TIER_BADGE_VARIANT: Record<TaskTier, "success" | "primary" | "warning"> = {
+  Premium: "success",
+  Medium:  "primary",
+  Small:   "warning",
+};
+
 // Pagination
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;

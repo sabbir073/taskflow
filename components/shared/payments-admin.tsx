@@ -34,29 +34,40 @@ export function PaymentsAdmin() {
   const invoicesCount = useAllInvoices({ page: 1, pageSize: 1 });
 
   const tabs = [
-    { key: "plans" as const, label: "Plans", count: plansCount.data?.length ?? 0 },
-    { key: "methods" as const, label: "Payment Methods", count: methodsCount.data?.length ?? 0 },
-    { key: "packages" as const, label: "Point Packages", count: packagesCount.data?.length ?? 0 },
-    { key: "submissions" as const, label: "Review Submissions", count: submissionsCount.data?.total ?? 0 },
-    { key: "invoices" as const, label: "Invoices", count: invoicesCount.data?.total ?? 0 },
+    { key: "plans" as const, label: "Plans", short: "Plans", count: plansCount.data?.length ?? 0 },
+    { key: "methods" as const, label: "Payment Methods", short: "Methods", count: methodsCount.data?.length ?? 0 },
+    { key: "packages" as const, label: "Point Packages", short: "Packages", count: packagesCount.data?.length ?? 0 },
+    { key: "submissions" as const, label: "Review Submissions", short: "Review", count: submissionsCount.data?.total ?? 0 },
+    { key: "invoices" as const, label: "Invoices", short: "Invoices", count: invoicesCount.data?.total ?? 0 },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b border-border/50 pb-px overflow-x-auto">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
-              tab === t.key
-                ? "text-primary bg-primary/5 border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label} ({t.count})
-          </button>
-        ))}
+      {/* Unified pill tabs (Entry #30 pattern) — full labels on sm+, short
+          labels + edge-bleed scroll on mobile. */}
+      <div className="-mx-4 sm:mx-0 overflow-x-auto scrollbar-none">
+        <div className="flex gap-2 px-4 sm:px-0 min-w-max">
+          {tabs.map((t) => {
+            const isActive = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all
+                  ${isActive
+                    ? "bg-linear-to-r from-primary to-accent text-white shadow-md shadow-primary/25"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95"}`}
+              >
+                <span className="hidden sm:inline">{t.label}</span>
+                <span className="sm:hidden">{t.short}</span>
+                <span className={`min-w-5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none tabular-nums
+                  ${isActive ? "bg-white/25 text-white" : "bg-background text-foreground"}`}>
+                  {t.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {tab === "plans" && <PlansTab />}
@@ -1125,74 +1136,100 @@ function InvoicesTab() {
       ) : items.length === 0 ? (
         <EmptyState icon={FileText} title="No invoices" description="No invoices match this filter." />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Invoice</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">User</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Date</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Purpose</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Amount</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Status</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((inv) => {
-                    const id = inv.id as number;
-                    const invNum = String(inv.invoice_number || `#${id}`);
-                    const user = inv.users as Record<string, unknown> | undefined;
-                    const name = String(user?.name || "Unknown");
-                    const email = String(user?.email || "");
-                    const amount = Number(inv.amount || 0);
-                    const currency = String(inv.currency || "usd").toUpperCase();
-                    const status = String(inv.status || "pending");
-
-                    const statusLabel = status === "approved" ? "Paid" : status === "rejected" ? "Rejected" : "Awaiting";
-                    const statusVariant: "success" | "warning" | "error" = status === "approved" ? "success" : status === "rejected" ? "error" : "warning";
-
-                    return (
-                      <tr key={id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-3">
-                          <Link href={`/billing/${id}`} className="font-mono text-xs font-semibold hover:text-primary">{invNum}</Link>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">TX: {String(inv.transaction_id || "-").slice(0, 24)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-[10px] font-bold text-primary">
-                              {getInitials(name)}
+        <>
+          {/* DESKTOP — table (lg+). Mobile/tablet use the card list below. */}
+          <Card className="hidden lg:block">
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Invoice</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">User</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Date</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Purpose</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Amount</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Status</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((inv) => {
+                      const f = getInvoiceFields(inv);
+                      return (
+                        <tr key={f.id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3">
+                            <Link href={`/billing/${f.id}`} className="font-mono text-xs font-semibold hover:text-primary">{f.invNum}</Link>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">TX: {f.txId}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-linear-to-br from-primary/20 to-accent/20 flex items-center justify-center text-[10px] font-bold text-primary">
+                                {getInitials(f.name)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate max-w-35">{f.name}</p>
+                                <p className="text-[10px] text-muted-foreground truncate max-w-35">{f.email}</p>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium truncate max-w-[140px]">{name}</p>
-                              <p className="text-[10px] text-muted-foreground truncate max-w-[140px]">{email}</p>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">{f.created}</td>
+                          <td className="px-4 py-3 text-xs capitalize">{f.purpose}</td>
+                          <td className="px-4 py-3 text-xs font-semibold">{f.amount.toFixed(2)} {f.currency}</td>
+                          <td className="px-4 py-3"><Badge variant={f.statusVariant}>{f.statusLabel}</Badge></td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="inline-flex gap-1">
+                              <Link href={`/billing/${f.id}`}>
+                                <Btn variant="ghost" size="sm">View</Btn>
+                              </Link>
+                              <Btn variant="outline" size="sm" onClick={() => startEdit(f.id, f.status)}>
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </Btn>
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">{inv.created_at ? formatDate(String(inv.created_at)) : "-"}</td>
-                        <td className="px-4 py-3 text-xs capitalize">{String(inv.purpose || "").replace("_", " ")}</td>
-                        <td className="px-4 py-3 text-xs font-semibold">{amount.toFixed(2)} {currency}</td>
-                        <td className="px-4 py-3"><Badge variant={statusVariant}>{statusLabel}</Badge></td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="inline-flex gap-1">
-                            <Link href={`/billing/${id}`}>
-                              <Btn variant="ghost" size="sm">View</Btn>
-                            </Link>
-                            <Btn variant="outline" size="sm" onClick={() => startEdit(id, status)}>
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </Btn>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* MOBILE / TABLET — stacked cards (<lg). Same fields + actions. */}
+          <div className="lg:hidden space-y-3">
+            {items.map((inv) => {
+              const f = getInvoiceFields(inv);
+              return (
+                <Card key={f.id} className="overflow-hidden">
+                  <div className="p-4 flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-linear-to-br from-primary/20 to-accent/20 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                      {getInitials(f.name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/billing/${f.id}`} className="font-mono text-xs font-semibold hover:text-primary">{f.invNum}</Link>
+                      <p className="text-xs font-medium truncate">{f.name}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">{f.email}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">TX: {f.txId}</p>
+                    </div>
+                    <Badge variant={f.statusVariant} className="shrink-0">{f.statusLabel}</Badge>
+                  </div>
+                  <div className="px-4 py-2.5 border-t border-border/50 bg-muted/20 flex items-center gap-3 text-xs flex-wrap">
+                    <span className="capitalize">{f.purpose}</span>
+                    <span className="font-semibold text-foreground">{f.amount.toFixed(2)} {f.currency}</span>
+                    <span className="text-muted-foreground">{f.created}</span>
+                    <div className="ml-auto flex gap-1">
+                      <Link href={`/billing/${f.id}`}><Btn variant="ghost" size="sm">View</Btn></Link>
+                      <Btn variant="outline" size="sm" onClick={() => startEdit(f.id, f.status)}>
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Btn>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {totalPages > 1 && (
@@ -1239,4 +1276,27 @@ function InvoicesTab() {
       )}
     </div>
   );
+}
+
+// Shared invoice-row field extraction so the desktop table + the mobile
+// card render identical data (Entry #38). Pure — no closure over InvoicesTab
+// state; the `startEdit` action stays in the JSX.
+function getInvoiceFields(inv: Record<string, unknown>) {
+  const id = inv.id as number;
+  const status = String(inv.status || "pending");
+  const user = inv.users as Record<string, unknown> | undefined;
+  return {
+    id,
+    status,
+    invNum: String(inv.invoice_number || `#${id}`),
+    name: String(user?.name || "Unknown"),
+    email: String(user?.email || ""),
+    amount: Number(inv.amount || 0),
+    currency: String(inv.currency || "usd").toUpperCase(),
+    txId: String(inv.transaction_id || "-").slice(0, 24),
+    purpose: String(inv.purpose || "").replace("_", " "),
+    created: inv.created_at ? formatDate(String(inv.created_at)) : "-",
+    statusLabel: status === "approved" ? "Paid" : status === "rejected" ? "Rejected" : "Awaiting",
+    statusVariant: (status === "approved" ? "success" : status === "rejected" ? "error" : "warning") as "success" | "warning" | "error",
+  };
 }

@@ -9,6 +9,7 @@ import { EmptyState } from "./empty-state";
 import { ConfirmDialog } from "./confirm-dialog";
 import { formatDate } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { PlatformTile } from "@/components/shared/platform-icon";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -87,9 +88,7 @@ export function ManageTasksView() {
                 <CardContent className="p-5">
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div className="flex items-start gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: config?.color || "#666" }}>
-                        {String(platform?.name || "?").charAt(0)}
-                      </div>
+                      <PlatformTile slug={slug} name={String(platform?.name || "")} color={config?.color} className="w-10 h-10 rounded-xl" iconClassName="w-5 h-5" />
                       <div className="min-w-0">
                         <Link href={`/tasks/${taskId}`} className="font-semibold hover:text-primary transition-colors">{title}</Link>
                         <p className="text-xs text-muted-foreground">{String(platform?.name || "")} &middot; {String(taskType?.name || "")} &middot; {status}</p>

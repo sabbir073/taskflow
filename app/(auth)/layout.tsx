@@ -20,7 +20,11 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-2">
-            <Logo href="/" size="lg" />
+            {/* Auth pages sit on the purple/branded gradient — force-white
+                wordmark so "Task" stays readable against both the light-mode
+                pastel gradient and the dark-mode gradient (where the default
+                `text-foreground` flipped to dark/invisible). */}
+            <Logo href="/" size="lg" wordmarkClassName="text-white" />
           </div>
           <p className="text-muted-foreground text-sm">
             Social Media Task Exchange Platform

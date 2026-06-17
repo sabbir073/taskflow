@@ -57,6 +57,7 @@ export const PERMISSIONS = {
   manage_popups: ["super_admin", "admin"],
   manage_plans: ["super_admin", "admin"],
   view_audit: ["super_admin", "admin"],
+  manage_group_applications: ["super_admin", "admin"],
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

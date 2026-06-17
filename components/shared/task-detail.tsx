@@ -2,17 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Label, Textarea, Btn, Badge } from "@/components/ui";
-import { CheckCircle, XCircle, Clock, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell, Sparkles, Copy, Play, Trophy } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ExternalLink, Image as ImageIcon, Loader2, Link2, Bell, Sparkles, Copy, Play, Trophy, Lock, ListChecks, Users, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAcceptTask,
   useSubmitItemProof,
   useReviewItemSubmission,
   useMyAssignmentWithItems,
+  useTaskRecentSubmitters,
 } from "@/hooks/use-tasks";
 import { useNotifyAssignmentToSubmit } from "@/hooks/use-groups";
-import { formatDate, getInitials } from "@/lib/utils";
-import { PLATFORM_CONFIG, MUSIC_STREAM_SLUGS, MUSIC_PLATFORM_SLUGS } from "@/lib/constants/platforms";
+import { formatDate, formatRelativeTime, getInitials } from "@/lib/utils";
+import { PLATFORM_CONFIG, MUSIC_STREAM_SLUGS, MUSIC_PLATFORM_SLUGS, REVERSAL_VOCAB } from "@/lib/constants/platforms";
+import { PlatformTile } from "@/components/shared/platform-icon";
 import { UserProfileModal } from "./user-profile-modal";
 import { RichTextContent } from "./rich-text-content";
 import { YoutubeWatchModal } from "./youtube-watch-modal";
@@ -51,6 +53,85 @@ type ItemSubmission = Record<string, unknown> & {
 
 type TaskField = { name: string; label: string; type: string };
 
+// Sort comparator used by every bundle-item list (worker view + admin view).
+// Bundle items carry sort_order assigned by the admin at creation time; the
+// gate logic in BundleProofSection depends on this exact order, so every UI
+// surface uses the same comparator to stay consistent.
+function byBundleSortOrder(
+  a: { task_bundle_items?: { sort_order?: number } | undefined } | undefined,
+  b: { task_bundle_items?: { sort_order?: number } | undefined } | undefined,
+): number {
+  const ao = Number(a?.task_bundle_items?.sort_order ?? 0);
+  const bo = Number(b?.task_bundle_items?.sort_order ?? 0);
+  return ao - bo;
+}
+
+// Walks the standard URL-ish keys that task_types use for "the target the
+// worker should act on" and returns the first non-empty string. Used by
+// TaskHowToCard's per-step one-liner and by the admin Submissions overhaul
+// (left "Target" panel) so both surfaces show the same authoritative link.
+const TARGET_URL_KEYS = [
+  "post_url", "video_url", "track_url", "profile_url", "business_url",
+  "listing_url", "page_url", "review_url", "story_url", "playlist_url",
+  "link", "url",
+] as const;
+function pickTargetUrl(itemData: Record<string, string | string[]> | undefined): string {
+  if (!itemData) return "";
+  for (const key of TARGET_URL_KEYS) {
+    const v = itemData[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+// Plain-English instruction for a bundle step. Uses the task_type slug to
+// guess what the worker actually has to do, falling back to the type name.
+// Read by TaskHowToCard. Keep the matches narrow — generic copy is fine when
+// a slug doesn't match, because the right-sidebar Task Data card still shows
+// the raw fields.
+function buildStepOneLiner({
+  slug, taskTypeName, targetUrl, watchSec, itemData,
+}: {
+  slug: string;
+  taskTypeName: string;
+  targetUrl: string;
+  watchSec: number | null;
+  itemData: Record<string, string | string[]>;
+}): string {
+  if (slug === "watch-video") {
+    return watchSec
+      ? `Open the video and watch for at least ${watchSec} seconds without switching tabs.`
+      : "Open the video and watch through to the end.";
+  }
+  if (MUSIC_STREAM_SLUGS.has(slug)) {
+    return watchSec
+      ? `Open the track in our locked player and let it stream for at least ${watchSec} seconds.`
+      : "Open the track in our locked player and stream it through.";
+  }
+  if (slug.startsWith("comment-") || slug === "leave-comment" || slug === "leave-public-comment") {
+    const commentText = typeof itemData?.comment_text === "string" ? itemData.comment_text : "";
+    if (commentText) return `Open the target${targetUrl ? " link" : ""} and post this comment: "${commentText.slice(0, 120)}${commentText.length > 120 ? "…" : ""}".`;
+    return "Open the target link and post a relevant comment.";
+  }
+  if (slug.startsWith("like-") || slug.startsWith("react-")) return "Open the target link and like / react to it.";
+  if (slug.startsWith("save-") || slug.startsWith("bookmark-") || slug.startsWith("add-to-")) return "Open the target link and save / bookmark it.";
+  if (slug.startsWith("share-") || slug === "retweet" || slug.startsWith("repost-")) return "Open the target link and share it.";
+  if (slug.startsWith("follow-") || slug === "subscribe" || slug.startsWith("subscribe-")) return "Open the profile and follow / subscribe.";
+  if (slug.startsWith("write-review") || slug.startsWith("rate-")) return "Open the listing and submit your review / rating.";
+  if (slug.startsWith("create-") || slug.startsWith("post-")) return "Create the requested content on the platform and submit the resulting link.";
+  return taskTypeName ? `Complete the ${taskTypeName.toLowerCase()} step on the platform.` : "Complete this step on the platform.";
+}
+
+// Centralised status pill so every surface (worker proof row, admin review
+// row, sidebar) shows the same vocabulary + colour for a given item status.
+function statusBadgeFor(status: string) {
+  if (status === "approved") return <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
+  if (status === "submitted") return <Badge variant="accent"><Clock className="w-3 h-3 mr-1" />Pending review</Badge>;
+  if (status === "rejected") return <Badge variant="error"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+  if (status === "cancelled") return <Badge variant="default">Cancelled</Badge>;
+  return <Badge variant="default">In progress</Badge>;
+}
+
 export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   const { task, assignments } = data;
   const platform = task.platforms as Record<string, unknown> | undefined;
@@ -87,15 +168,17 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
   const myItemSubmissions: ItemSubmission[] = (myAssignmentQuery.data?.items as ItemSubmission[] | undefined) || [];
   const assignmentLoading = myAssignmentQuery.isLoading;
 
+  const platformName = String(platform?.name || "Platform");
+  const isWorkerView = !canViewSubmissions;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6">
         <Card>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg" style={{ backgroundColor: platformConfig?.color || "#666" }}>
-                {String(platform?.name || "?").charAt(0)}
-              </div>
+              <PlatformTile slug={platformSlug} name={String(platform?.name || "")} color={platformConfig?.color} className="w-12 h-12 rounded-xl" iconClassName="w-6 h-6" letterClassName="text-lg" />
               <div>
                 <p className="font-semibold">{String(platform?.name || "")}</p>
                 <p className="text-sm text-muted-foreground">
@@ -184,6 +267,29 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
           </CardContent>
         </Card>
 
+        {/* "How to complete this task" callout — numbered step list with
+            concrete one-line instructions and clickable target URLs pulled
+            from each bundle item's item_data. Renders once the assignment is
+            loaded so the ordering matches the sequential gate below. */}
+        {!assignmentLoading && myAssignment && myItemSubmissions.length > 0 && (
+          <TaskHowToCard items={myItemSubmissions} />
+        )}
+
+        {/* AI-check warning banner — worker-facing only. Lists the
+            platform-specific reverse actions (unlike, unfollow, delete-
+            comment, delete-share) that the AI re-check detects and warns
+            that any reversal triggers an automatic account + IP + device
+            ban. Admins / task owners don't see this — it's aimed at the
+            person doing the work. */}
+        {isWorkerView && (
+          <AiCheckWarningCard platformSlug={platformSlug} platformName={platformName} />
+        )}
+
+        {/* Social-proof "Recent activity" card — hides itself when zero
+            completions exist, so a brand-new task doesn't render an empty
+            shell. See lib/actions/tasks.ts getTaskRecentSubmitters. */}
+        <TaskRecentActivity taskId={Number(task.id || 0)} />
+
         {/* Worker's per-item proof section */}
         {assignmentLoading ? (
           <Card><CardContent className="py-6 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></CardContent></Card>
@@ -196,96 +302,86 @@ export function TaskDetail({ data, currentUserId, isAdmin }: Props) {
           />
         ) : null}
 
-        {canViewSubmissions && (
-          <Card>
-            <CardHeader><CardTitle>Submissions ({assignments.length})</CardTitle></CardHeader>
-            <CardContent>
-              {assignments.length === 0 ? <p className="text-sm text-muted-foreground py-6 text-center">No submissions yet</p> : (
-                <div className="space-y-3">
-                  {assignments.map((a) => (
-                    <AssignmentReviewRow
-                      key={a.id as number}
-                      assignment={a as Record<string, unknown>}
-                      bundleItems={bundleItems}
-                      isAdmin={isAdmin}
-                      completionBonus={completionBonus}
-                      onViewProfile={isAdmin ? setProfileUserId : undefined}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {isGroupLeaderOfTargetGroup && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Submission Status ({assignments.length})</CardTitle>
-              <CardDescription>
-                As the group leader you can see who has submitted and send a reminder to those who haven&apos;t. Only admins can approve or reject proofs.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {assignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-6 text-center">No members assigned yet</p>
-              ) : (
-                <div className="space-y-2">
-                  {assignments.map((a) => (
-                    <GroupLeaderStatusRow key={a.id as number} assignment={a} />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       {/* Admin profile modal */}
       {isAdmin && <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />}
 
-      {/* Right column: per-item Task Data card. Each bundle item gets its
-          own collapsed-ish section showing only its own task_data fields,
-          plus a "View Video" button for watch-video items that swaps in
-          for the otherwise-hidden URL. */}
+      {/* Right column: per-item Task Data + Bundle Rewards. Both are
+          renovated to use the same numbered-step vocabulary as the left
+          column so workers can switch eyes between sides without
+          re-orienting. */}
       <div className="space-y-4">
-        <Card>
+        <TaskDataCard
+          bundleItems={bundleItems}
+          myItemSubmissions={myItemSubmissions}
+          canViewSubmissions={canViewSubmissions}
+        />
+        <BundleRewardsCard
+          bundleItems={bundleItems}
+          completionBonus={completionBonus}
+        />
+      </div>
+      </div>
+
+      {/* Submissions — full-width below the two-column grid so it appears
+          at the very bottom on every breakpoint. Admins / task owners see
+          the per-worker review rows with side-by-side Target / Proof
+          panels (see ItemReviewBlock). Group leaders of the target group
+          see a read-only status list with Remind buttons. The #submissions
+          id lets /inbox deep-links scroll-target this card. */}
+      {canViewSubmissions && (
+        <Card id="submissions">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" /> Submissions ({assignments.length})
+            </CardTitle>
+            <CardDescription>
+              Verify each worker&apos;s proof against the task target before approving. Approved items credit the worker immediately; rejections require a reason.
+            </CardDescription>
+          </CardHeader>
           <CardContent>
-            <h4 className="text-sm font-semibold mb-3">Task Data</h4>
-            {bundleItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No bundle items configured</p>
+            {assignments.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No submissions yet</p>
             ) : (
-              <div className="space-y-4">
-                {bundleItems.map((item, idx) => {
-                  const itemSubmission = myItemSubmissions.find((s) => s.bundle_item_id === item.id) || null;
-                  return (
-                    <BundleItemSidebarCard
-                      key={item.id}
-                      item={item}
-                      itemSubmission={itemSubmission}
-                      itemIndex={idx + 1}
-                      totalItems={bundleItems.length}
-                      canViewSubmissions={canViewSubmissions}
-                    />
-                  );
-                })}
+              <div className="space-y-3">
+                {assignments.map((a) => (
+                  <AssignmentReviewRow
+                    key={a.id as number}
+                    assignment={a as Record<string, unknown>}
+                    bundleItems={bundleItems}
+                    isAdmin={isAdmin}
+                    completionBonus={completionBonus}
+                    onViewProfile={isAdmin ? setProfileUserId : undefined}
+                  />
+                ))}
               </div>
             )}
           </CardContent>
         </Card>
+      )}
+
+      {isGroupLeaderOfTargetGroup && (
         <Card>
+          <CardHeader>
+            <CardTitle>Submission Status ({assignments.length})</CardTitle>
+            <CardDescription>
+              As the group leader you can see who has submitted and send a reminder to those who haven&apos;t. Only admins can approve or reject proofs.
+            </CardDescription>
+          </CardHeader>
           <CardContent>
-            <h4 className="text-sm font-semibold mb-1">Bundle Rewards</h4>
-            <div className="space-y-1 mt-2 text-xs text-muted-foreground">
-              <p>
-                Earn each item&apos;s points on approval. {completionBonus > 0 && (
-                  <>Bonus <strong className="text-foreground">+{completionBonus.toFixed(2)} pts</strong> when every item is approved.</>
-                )}
-              </p>
-            </div>
+            {assignments.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No members assigned yet</p>
+            ) : (
+              <div className="space-y-2">
+                {assignments.map((a) => (
+                  <GroupLeaderStatusRow key={a.id as number} assignment={a} />
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
-      </div>
+      )}
     </div>
   );
 }
@@ -346,33 +442,68 @@ function BundleProofSection({
   }
 
   // status is in_progress, submitted, or rejected — render the per-item grid.
-  const approvedCount = items.filter((i) => i.status === "approved").length;
-  const totalCount = items.length;
+  // Sequential gate: sort items by `task_bundle_items.sort_order`, then
+  // compute the first non-(submitted|approved) index. Everything after that
+  // index is locked until the worker finishes the current step. Music
+  // streams auto-approve so a music item satisfies the gate the moment its
+  // countdown ends; non-music items satisfy it the moment they're submitted.
+  const sortedItems = [...items].sort((a, b) => {
+    const ao = Number((a.task_bundle_items as { sort_order?: number } | undefined)?.sort_order ?? 0);
+    const bo = Number((b.task_bundle_items as { sort_order?: number } | undefined)?.sort_order ?? 0);
+    return ao - bo;
+  });
+  const firstBlockingIdx = sortedItems.findIndex(
+    (i) => i.status !== "submitted" && i.status !== "approved"
+  );
+  const isLockedAt = (idx: number) => firstBlockingIdx !== -1 && idx > firstBlockingIdx;
+  const blockingName = firstBlockingIdx !== -1
+    ? String((sortedItems[firstBlockingIdx].task_bundle_items as { task_types?: { name?: string } } | undefined)?.task_types?.name || "previous step")
+    : "";
+
+  const approvedCount = sortedItems.filter((i) => i.status === "approved").length;
+  const totalCount = sortedItems.length;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Trophy className="w-4 h-4 text-primary" /> Complete each item
-        </CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-primary" /> Complete each step
+          </CardTitle>
+          <Badge variant={approvedCount === totalCount ? "success" : "primary"} className="shrink-0">
+            {firstBlockingIdx !== -1
+              ? `Step ${firstBlockingIdx + 1} of ${totalCount}`
+              : `${approvedCount} of ${totalCount} approved`}
+          </Badge>
+        </div>
         <CardDescription>
           {approvedCount} of {totalCount} approved
           {completionBonus > 0 && (
-            <> · <strong className="text-foreground">+{completionBonus.toFixed(2)} pt bonus</strong> when all items are approved</>
+            <> · <strong className="text-foreground">+{completionBonus.toFixed(2)} pt bonus</strong> when every step is approved</>
           )}
         </CardDescription>
+        {/* Progress bar — mirrors the badge so the worker can see how far
+            they are at a glance without reading the description. */}
+        <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-primary to-accent transition-all"
+            style={{ width: `${totalCount > 0 ? Math.round((approvedCount / totalCount) * 100) : 0}%` }}
+          />
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {items.length === 0 ? (
+        {sortedItems.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">No bundle items configured</p>
         ) : (
-          items.map((it, idx) => (
+          sortedItems.map((it, idx) => (
             <BundleItemRow
               key={it.id}
               itemSubmission={it}
               itemIndex={idx + 1}
               totalItems={totalCount}
               platformSlug={platformSlug}
+              isLocked={isLockedAt(idx)}
+              previousItemName={isLockedAt(idx) ? blockingName : undefined}
             />
           ))
         )}
@@ -389,11 +520,15 @@ function BundleItemRow({
   itemIndex,
   totalItems,
   platformSlug,
+  isLocked = false,
+  previousItemName,
 }: {
   itemSubmission: ItemSubmission;
   itemIndex: number;
   totalItems: number;
   platformSlug: string;
+  isLocked?: boolean;
+  previousItemName?: string;
 }) {
   const item = itemSubmission.task_bundle_items as BundleItem | undefined;
   const status = String(itemSubmission.status);
@@ -441,21 +576,37 @@ function BundleItemRow({
   })();
 
   return (
-    <div className="rounded-xl border border-border/50 overflow-hidden">
-      {/* Header row */}
+    <div className={`rounded-xl border overflow-hidden ${
+      status === "approved" ? "border-success/30" :
+      status === "rejected" ? "border-error/30" :
+      isLocked ? "border-border/40 opacity-75" :
+      "border-border/50"
+    }`}>
+      {/* Header row — large numbered pill so workers see the step number at
+          a glance; the same visual vocabulary as TaskHowToCard so the two
+          surfaces feel like one. */}
       <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b border-border/40">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
-          {itemIndex} / {totalItems}
+        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+          status === "approved" ? "bg-success text-white" :
+          status === "submitted" ? "bg-accent text-white" :
+          isLocked ? "bg-muted text-muted-foreground" :
+          "bg-primary text-primary-foreground"
+        }`}>
+          {status === "approved" ? <CheckCircle className="w-4 h-4" /> : itemIndex}
         </span>
-        <p className="text-sm font-semibold flex-1 truncate">{typeName}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate">{typeName}</p>
+          <p className="text-[10px] text-muted-foreground">Step {itemIndex} of {totalItems}</p>
+        </div>
         <span className="text-xs font-mono text-primary shrink-0">+{itemPoints.toFixed(2)} pts</span>
-        <div className="shrink-0">{statusPill}</div>
+        <div className="shrink-0 hidden sm:block">{statusPill}</div>
       </div>
 
       {/* Item content the admin configured — what the worker actually has
           to do for THIS item. Visible while there's something to do; we
-          hide it on approved/cancelled rows since the work is done. */}
-      {hasItemData && status !== "approved" && status !== "cancelled" && (
+          hide it on approved / cancelled / locked rows since the work is
+          either done, irrelevant, or unreachable. */}
+      {hasItemData && status !== "approved" && status !== "cancelled" && !isLocked && (
         <div className="px-4 pt-3 pb-1 bg-muted/10 border-b border-border/30">
           <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1.5">
             Action details
@@ -468,8 +619,9 @@ function BundleItemRow({
         </div>
       )}
 
-      {/* Body switches on status */}
-      <div className="px-4 py-3 space-y-3">
+      {/* Body switches on status. Locked rows collapse to a single-line
+          pill so workers can scroll past them quickly on mobile. */}
+      <div className={`px-4 ${isLocked ? "py-2" : "py-3"} space-y-3`}>
         {status === "approved" && (
           <p className="text-xs text-success">
             <CheckCircle className="w-3.5 h-3.5 inline mr-1" />
@@ -485,7 +637,7 @@ function BundleItemRow({
           <p className="text-xs text-muted-foreground">This item was cancelled.</p>
         )}
 
-        {status === "rejected" && (
+        {status === "rejected" && !isLocked && (
           <div className="rounded-lg bg-error/10 px-3 py-2">
             <p className="text-[10px] uppercase tracking-wider font-semibold text-error">Rejection reason</p>
             <p className="text-xs text-error mt-0.5">{itemSubmission.rejection_reason || "No reason"}</p>
@@ -493,7 +645,20 @@ function BundleItemRow({
           </div>
         )}
 
-        {(status === "in_progress" || status === "rejected") && (
+        {(status === "in_progress" || status === "rejected") && isLocked && (
+          // Sequential bundle gate: this item is unreachable until the
+          // earlier step is at least submitted. Music auto-approves, so
+          // a music step satisfies the gate the moment its countdown ends.
+          // Compact single-line pill so the row reads as collapsed.
+          <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+            <Lock className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              Locked — finish <strong className="text-foreground">{previousItemName || "the previous step"}</strong> first.
+            </span>
+          </div>
+        )}
+
+        {(status === "in_progress" || status === "rejected") && !isLocked && (
           isWatchVideo ? (
             // Watch-video items: open the in-app player. The modal auto-
             // submits when the worker reaches watch_duration_sec (or watches
@@ -634,33 +799,46 @@ function BundleItemSidebarCard({
   const slug = String(taskType?.slug || "");
   const typeName = String(taskType?.name || "");
   const isWatchVideo = slug === "watch-video";
+  const isMusicStream = MUSIC_STREAM_SLUGS.has(slug);
   const fieldDefs: TaskField[] = (taskType?.required_fields as TaskField[] | undefined) || [];
-  // Hide the raw YouTube URL from non-staff viewers — the View Video button
-  // (rendered inside the worker's BundleProofSection) opens the in-app
-  // player instead.
-  const hideKeys = isWatchVideo && !canViewSubmissions ? ["video_url"] : [];
+  // Hide the raw YouTube / music URL from workers — the player buttons in
+  // BundleProofSection are the only sanctioned way to open the target.
+  const hideKeys: string[] = [];
+  if (!canViewSubmissions) {
+    if (isWatchVideo) hideKeys.push("video_url");
+    if (isMusicStream) hideKeys.push("track_url");
+  }
+
+  const status = itemSubmission ? String(itemSubmission.status) : "";
+  // Status-aware tint so the sidebar visually mirrors the worker's progress
+  // in BundleProofSection / TaskHowToCard — green for approved, red for
+  // rejected, accent for submitted (awaiting review). Locked / not-yet
+  // started rows stay neutral.
+  const tint =
+    status === "approved" ? "border-success/30 bg-success/5"
+    : status === "rejected" ? "border-error/30 bg-error/5"
+    : status === "submitted" ? "border-accent/30 bg-accent/5"
+    : "border-border/40";
 
   return (
-    <div className="rounded-xl border border-border/40 p-3">
+    <div className={`rounded-xl border p-3 ${tint}`}>
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-            {itemIndex} / {totalItems}
+          <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-bold shrink-0">
+            {itemIndex}
           </span>
           <p className="text-xs font-semibold truncate">{typeName || `Item #${itemIndex}`}</p>
         </div>
-        <span className="text-[11px] font-mono text-primary">+{Number(item.points || 0).toFixed(2)}</span>
+        <span className="text-[11px] font-mono text-primary shrink-0">+{Number(item.points || 0).toFixed(2)}</span>
       </div>
-      <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground">
-        <Badge variant="primary" className="capitalize">
-          {item.proof_type === "none" ? "Auto" : String(item.proof_type)}
+      <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground flex-wrap">
+        <Badge variant="primary" className="capitalize text-[9px] px-1.5 py-0">
+          {item.proof_type === "none" ? "Auto-submit" : String(item.proof_type)}
         </Badge>
-        {item.watch_duration_sec && (
-          <span>· Watch ≥{item.watch_duration_sec}s</span>
-        )}
-        {itemSubmission && (
-          <span className="ml-auto capitalize">{String(itemSubmission.status).replace("_", " ")}</span>
-        )}
+        {item.watch_duration_sec ? (
+          <span>≥{item.watch_duration_sec}s</span>
+        ) : null}
+        <span className="ml-auto capitalize">{status ? status.replace("_", " ") : `Step ${itemIndex} of ${totalItems}`}</span>
       </div>
       <TaskDataFields
         taskData={(item.item_data as Record<string, string>) || {}}
@@ -668,6 +846,116 @@ function BundleItemSidebarCard({
         hideKeys={hideKeys}
       />
     </div>
+  );
+}
+
+// ============================================================================
+// TaskDataCard — right-sidebar wrapper that lists every bundle item in
+// admin sort order, each with its own targets/data and a status tint that
+// matches the worker's progress in BundleProofSection.
+// ============================================================================
+function TaskDataCard({
+  bundleItems,
+  myItemSubmissions,
+  canViewSubmissions,
+}: {
+  bundleItems: BundleItem[];
+  myItemSubmissions: ItemSubmission[];
+  canViewSubmissions: boolean;
+}) {
+  if (bundleItems.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Task data</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No bundle items configured</p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <ListChecks className="w-4 h-4 text-primary" /> Task data
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Per-step targets and reference content
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {bundleItems.map((item, idx) => {
+          const itemSubmission = myItemSubmissions.find((s) => s.bundle_item_id === item.id) || null;
+          return (
+            <BundleItemSidebarCard
+              key={item.id}
+              item={item}
+              itemSubmission={itemSubmission}
+              itemIndex={idx + 1}
+              totalItems={bundleItems.length}
+              canViewSubmissions={canViewSubmissions}
+            />
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// BundleRewardsCard — itemised reward breakdown.
+// ============================================================================
+// Replaces the previous one-line "Earn each item's points" text with an
+// actual table: per-item points + optional completion bonus + grand total.
+// Lets the worker / task owner see exactly what's at stake before starting.
+function BundleRewardsCard({
+  bundleItems,
+  completionBonus,
+}: {
+  bundleItems: BundleItem[];
+  completionBonus: number;
+}) {
+  const itemsTotal = bundleItems.reduce((s, b) => s + Number(b.points || 0), 0);
+  const total = itemsTotal + completionBonus;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Trophy className="w-4 h-4 text-warning" /> Bundle rewards
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {bundleItems.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No items configured.</p>
+        ) : (
+          <ul className="space-y-1">
+            {bundleItems.map((it, idx) => (
+              <li key={it.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground truncate min-w-0">
+                  <span className="font-mono mr-1.5 text-foreground">{idx + 1}.</span>
+                  {String(it.task_types?.name || "Item")}
+                </span>
+                <span className="font-mono text-primary shrink-0">+{Number(it.points || 0).toFixed(2)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {completionBonus > 0 && (
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/30 text-xs">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-accent" /> Completion bonus
+            </span>
+            <span className="font-mono text-accent shrink-0">+{completionBonus.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-border text-sm">
+          <span className="font-semibold">Total possible</span>
+          <span className="font-mono font-bold text-success shrink-0">+{total.toFixed(2)} pts</span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -909,6 +1197,13 @@ function AssignmentReviewRow({
 // ============================================================================
 // One item inside an AssignmentReviewRow — admin's approve/reject affordances
 // ============================================================================
+// Layout is split into three vertical bands so the admin can verify in one
+// glance:
+//   1. Header — action name + points + status badge.
+//   2. Body — side-by-side Target / Proof panels (collapses to two stacked
+//      rows on mobile / narrow breakpoints).
+//   3. Footer — approve / reject buttons (only when admin + status=submitted)
+//      OR rejection reason banner (when status=rejected).
 function ItemReviewBlock({
   itemSubmission,
   isAdmin,
@@ -919,85 +1214,187 @@ function ItemReviewBlock({
   const review = useReviewItemSubmission();
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
+
   const item = itemSubmission.task_bundle_items as BundleItem | undefined;
-  const typeName = String(item?.task_types?.name || "Item");
+  const taskType = item?.task_types;
+  const typeName = String(taskType?.name || "Item");
   const status = String(itemSubmission.status);
-  const proofUrls = itemSubmission.proof_urls || [];
-  const proofShots = itemSubmission.proof_screenshots || [];
-  const hasProof = proofUrls.length > 0 || proofShots.length > 0;
   const points = Number(item?.points || 0);
 
-  const statusBadge = (() => {
-    if (status === "approved") return <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
-    if (status === "rejected") return <Badge variant="error"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
-    if (status === "submitted") return <Badge variant="accent"><Clock className="w-3 h-3 mr-1" />Pending review</Badge>;
-    if (status === "cancelled") return <Badge variant="default">Cancelled</Badge>;
-    return <Badge variant="default">In progress</Badge>;
-  })();
+  const itemData = (item?.item_data as Record<string, string | string[]>) || {};
+  const targetUrl = pickTargetUrl(itemData);
+  const fieldDefs = (taskType?.required_fields as TaskField[] | undefined) || [];
+  const watchSec = item?.watch_duration_sec ?? null;
+
+  const proofUrls = itemSubmission.proof_urls || [];
+  const proofShots = itemSubmission.proof_screenshots || [];
+  const proofNotes = itemSubmission.proof_notes;
+  const hasProof = proofUrls.length > 0 || proofShots.length > 0 || !!proofNotes;
 
   return (
-    <div className="px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="text-sm font-semibold truncate">{typeName}</p>
-          <span className="text-xs font-mono text-primary shrink-0">+{points.toFixed(2)}</span>
-        </div>
-        {statusBadge}
+    <div className="rounded-xl border border-border/50 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-muted/30 border-b border-border/40">
+        <p className="text-sm font-semibold flex-1 truncate">{typeName}</p>
+        <span className="text-xs font-mono text-primary shrink-0">+{points.toFixed(2)} pts</span>
+        <div className="shrink-0">{statusBadgeFor(status)}</div>
       </div>
 
-      {hasProof && (
-        <div className="flex gap-2 flex-wrap">
-          {proofUrls.map((url, i) => (
-            <a key={`u${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-              <ExternalLink className="w-3 h-3" /> URL {i + 1}
+      {/* Side-by-side: Target (what the worker should do) | Proof (what they
+          submitted). On mobile collapses to a vertical stack with a
+          horizontal divider; on md+ becomes 2 columns with a vertical
+          divider. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/30">
+        {/* LEFT — Target */}
+        <div className="p-4 space-y-2 bg-primary/[0.02]">
+          <p className="text-[10px] uppercase tracking-wider font-semibold text-primary flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3" /> Target — what they should do
+          </p>
+          {targetUrl ? (
+            <a
+              href={targetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-primary hover:underline break-all"
+            >
+              <ExternalLink className="w-3 h-3 shrink-0" />
+              <span className="truncate">{targetUrl}</span>
             </a>
-          ))}
-          {proofShots.map((url, i) => (
-            <a key={`s${i}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-              <ImageIcon className="w-3 h-3" /> Screenshot {i + 1}
-            </a>
-          ))}
+          ) : null}
+          {watchSec ? (
+            <p className="text-xs text-muted-foreground">
+              Watch / listen for at least <strong className="text-foreground">{watchSec}s</strong>.
+            </p>
+          ) : null}
+          <TaskDataFields taskData={itemData} fieldDefs={fieldDefs} hideKeys={[]} />
+        </div>
+
+        {/* RIGHT — Proof */}
+        <div className="p-4 space-y-2.5 bg-success/[0.02]">
+          <p className="text-[10px] uppercase tracking-wider font-semibold text-success flex items-center gap-1.5">
+            <CheckCircle className="w-3 h-3" /> Proof — what they submitted
+          </p>
+          {!hasProof ? (
+            <p className="text-xs text-muted-foreground italic">
+              No proof attached (auto-submitted by the in-app player).
+            </p>
+          ) : (
+            <>
+              {proofUrls.length > 0 && (
+                <ul className="space-y-1">
+                  {proofUrls.map((url, i) => (
+                    <li key={`u${i}`}>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-primary hover:underline break-all"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{url}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {proofShots.length > 0 && (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {proofShots.map((url, i) => (
+                    <a
+                      key={`s${i}`}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="relative rounded-lg overflow-hidden border border-border/40 group block aspect-video bg-muted/30"
+                      title={`Open screenshot ${i + 1} in a new tab`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={`Proof screenshot ${i + 1}`}
+                        className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
+                      />
+                      <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/65 text-white text-[9px] font-semibold flex items-center gap-0.5">
+                        <ImageIcon className="w-2.5 h-2.5" />{i + 1}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
+              {!!proofNotes && (
+                <p className="text-xs text-muted-foreground bg-muted/40 px-2.5 py-1.5 rounded-lg italic">
+                  &ldquo;{String(proofNotes)}&rdquo;
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Rejection reason banner — visible to both admin and the row owner
+          so the admin remembers what they wrote, and the worker (who reads
+          the same UI on their own task page) sees the same explanation. */}
+      {status === "rejected" && !!itemSubmission.rejection_reason && (
+        <div className="px-4 py-2.5 bg-error/5 border-t border-error/20 text-xs">
+          <span className="font-semibold text-error">Rejected · </span>
+          <span className="text-foreground">{itemSubmission.rejection_reason}</span>
         </div>
       )}
 
-      {!!itemSubmission.proof_notes && (
-        <p className="text-xs text-muted-foreground italic">&ldquo;{itemSubmission.proof_notes}&rdquo;</p>
-      )}
-
-      {status === "rejected" && !!itemSubmission.rejection_reason && (
-        <p className="text-xs text-error">Reason: {itemSubmission.rejection_reason}</p>
-      )}
-
+      {/* Approve / Reject footer — admin only, submitted state only. */}
       {isAdmin && status === "submitted" && (
-        <div className="flex gap-2 pt-1">
+        <div className="px-4 py-3 bg-muted/20 border-t border-border/40">
           {showReject ? (
-            <>
-              <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason..." className="h-9 text-xs flex-1" autoFocus />
-              <Btn
-                variant="danger"
-                size="sm"
-                disabled={!rejectReason || review.isPending}
-                onClick={() => {
-                  review.mutate({ itemSubmissionId: itemSubmission.id, action: "reject", reason: rejectReason });
-                  setShowReject(false);
-                  setRejectReason("");
-                }}
-              >
-                Confirm
-              </Btn>
-              <Btn variant="ghost" size="sm" onClick={() => { setShowReject(false); setRejectReason(""); }}>
-                Cancel
-              </Btn>
-            </>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Why is this being rejected?"
+                className="text-xs flex-1"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <Btn
+                  variant="danger"
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                  disabled={!rejectReason.trim() || review.isPending}
+                  onClick={() => {
+                    review.mutate({ itemSubmissionId: itemSubmission.id, action: "reject", reason: rejectReason });
+                    setShowReject(false);
+                    setRejectReason("");
+                  }}
+                >
+                  Confirm reject
+                </Btn>
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setShowReject(false); setRejectReason(""); }}
+                >
+                  Cancel
+                </Btn>
+              </div>
+            </div>
           ) : (
-            <>
-              <Btn size="sm" onClick={() => review.mutate({ itemSubmissionId: itemSubmission.id, action: "approve" })} disabled={review.isPending}>
-                <CheckCircle className="w-3 h-3 mr-1" /> Approve
+            <div className="flex gap-2">
+              <Btn
+                size="sm"
+                className="flex-1"
+                onClick={() => review.mutate({ itemSubmissionId: itemSubmission.id, action: "approve" })}
+                isLoading={review.isPending}
+              >
+                <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve · +{points.toFixed(0)} pts
               </Btn>
-              <Btn variant="outline" size="sm" onClick={() => setShowReject(true)}>
-                <XCircle className="w-3 h-3 mr-1" /> Reject
+              <Btn
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => setShowReject(true)}
+              >
+                <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
               </Btn>
-            </>
+            </div>
           )}
         </div>
       )}
@@ -1054,5 +1451,191 @@ function AiPromptBlock({ prompt }: { prompt: string }) {
         <p className="text-sm whitespace-pre-wrap font-mono leading-relaxed">{prompt}</p>
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// TaskHowToCard — "How to complete this task" overview above the proof section.
+// ============================================================================
+// Numbered preview of every bundle step in admin-defined `sort_order`. The
+// detailed per-step admin content (caption text, AI prompts, image URLs)
+// still lives inside each BundleItemRow below — this card just answers
+// "where do I start, how many steps?" so the worker has a mental map before
+// diving in.
+function TaskHowToCard({ items }: { items: ItemSubmission[] }) {
+  const sortedItems = useMemo(() => [...items].sort(byBundleSortOrder), [items]);
+  if (sortedItems.length === 0) return null;
+
+  // First unfinished step index — drives the "Start here" badge so it
+  // attaches to whichever step the worker should currently be on, not
+  // always to step #1.
+  const startHereIdx = sortedItems.findIndex(
+    (it) => it.status !== "submitted" && it.status !== "approved",
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ListChecks className="w-5 h-5 text-primary" /> How to complete this task
+        </CardTitle>
+        <CardDescription>
+          {sortedItems.length} step{sortedItems.length === 1 ? "" : "s"} — finish in order. Each step unlocks the next.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="space-y-3">
+          {sortedItems.map((it, idx) => {
+            const bi = it.task_bundle_items;
+            const taskType = bi?.task_types;
+            const typeName = String(taskType?.name || `Step ${idx + 1}`);
+            const slug = String(taskType?.slug || "");
+            const points = Number(bi?.points || 0);
+            const watchSec = bi?.watch_duration_sec ?? null;
+            const itemData = (bi?.item_data as Record<string, string | string[]>) || {};
+            const targetUrl = pickTargetUrl(itemData);
+            const status = String(it.status);
+            const isDone = status === "submitted" || status === "approved";
+            const isApproved = status === "approved";
+            const isStartHere = idx === startHereIdx;
+            const oneLiner = buildStepOneLiner({
+              slug, taskTypeName: typeName, targetUrl, watchSec, itemData,
+            });
+            return (
+              <li
+                key={it.id}
+                className={`flex items-start gap-3 p-3 rounded-xl border ${
+                  isApproved
+                    ? "border-success/30 bg-success/5"
+                    : isDone
+                    ? "border-accent/30 bg-accent/5"
+                    : isStartHere
+                    ? "border-primary/30 bg-primary/[0.04]"
+                    : "border-border/40 bg-muted/20"
+                }`}
+              >
+                <span
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                    isApproved
+                      ? "bg-success text-white"
+                      : isDone
+                      ? "bg-accent text-white"
+                      : "bg-primary text-primary-foreground"
+                  }`}
+                  aria-hidden
+                >
+                  {isApproved ? <CheckCircle className="w-4 h-4" /> : isDone ? <Clock className="w-3.5 h-3.5" /> : idx + 1}
+                </span>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold truncate">{typeName}</p>
+                    <span className="text-[11px] font-mono text-primary">+{points.toFixed(0)} pts</span>
+                    {isStartHere && !isDone && (
+                      <Badge variant="primary" className="text-[9px] px-1.5 py-0">Start here</Badge>
+                    )}
+                    {watchSec && (
+                      <span className="text-[11px] text-muted-foreground">· ≥{watchSec}s</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{oneLiner}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// AiCheckWarningCard — strict ban notice for workers.
+// ============================================================================
+// Mounted between TaskHowToCard and TaskRecentActivity on worker-facing
+// task pages. Lists the platform-specific reversible actions (unlike,
+// unfollow, delete-comment, delete-share) that the AI re-check detects and
+// spells out the consequence: automatic account ban with IP + device on
+// the block list. Copy comes from REVERSAL_VOCAB in lib/constants/platforms
+// so per-platform phrasing reads naturally. Defaults to a generic list
+// when the platform slug isn't in the map.
+function AiCheckWarningCard({ platformSlug, platformName }: { platformSlug: string; platformName: string }) {
+  const reversal = REVERSAL_VOCAB[platformSlug] ?? REVERSAL_VOCAB.default;
+  // English-style list join: ["a", "b", "c"] -> "a, b, or c". Falls back to
+  // a single-item rendering when only one phrase exists.
+  const joined =
+    reversal.length === 1
+      ? reversal[0]
+      : reversal.length === 2
+      ? `${reversal[0]} or ${reversal[1]}`
+      : `${reversal.slice(0, -1).join(", ")}, or ${reversal[reversal.length - 1]}`;
+  return (
+    <Card className="border-error/30 bg-error/5">
+      <CardContent className="flex gap-3 py-4">
+        <div className="w-10 h-10 rounded-xl bg-error/15 flex items-center justify-center shrink-0">
+          <ShieldAlert className="w-5 h-5 text-error" />
+        </div>
+        <div className="flex-1 space-y-1.5 text-sm min-w-0">
+          <p className="font-semibold text-error">All actions are AI-verified — keep them live.</p>
+          <p className="text-foreground">
+            On <span className="font-semibold">{platformName}</span>, if you {joined} after submitting,
+            our AI re-checks the action and detects the reversal.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Reversed actions trigger an <strong className="text-error">automatic account ban</strong> —
+            your IP address and device fingerprint are added to the block list. Confirmed reversals are not appealable.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// TaskRecentActivity — "Recent activity" card with completion count + avatars.
+// ============================================================================
+// Polls every 60s (via useTaskRecentSubmitters → React Query). Hides itself
+// entirely when no completions exist so a brand-new task doesn't show an
+// empty shell. Names + avatars come from the public `users` table; no
+// private fields exposed.
+function TaskRecentActivity({ taskId }: { taskId: number }) {
+  const { data, isLoading } = useTaskRecentSubmitters(taskId);
+  if (isLoading || !data || data.totalCompleted === 0) return null;
+
+  const total = data.totalCompleted;
+  const recent = data.recent;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="w-5 h-5 text-success" /> Recent activity
+        </CardTitle>
+        <CardDescription>
+          {total.toLocaleString()} worker{total === 1 ? "" : "s"} have completed this task.
+        </CardDescription>
+      </CardHeader>
+      {recent.length > 0 && (
+        <CardContent>
+          <ul className="space-y-1.5">
+            {recent.map((r) => (
+              <li key={r.user_id} className="flex items-center gap-2 text-xs">
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-[10px] font-bold shrink-0 overflow-hidden">
+                  {r.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.image} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    getInitials(r.name || "U")
+                  )}
+                </div>
+                <span className="font-medium truncate">{r.name || "Anonymous"}</span>
+                <span className="text-muted-foreground ml-auto shrink-0">
+                  {formatRelativeTime(r.completed_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      )}
+    </Card>
   );
 }

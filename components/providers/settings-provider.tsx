@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useTheme } from "next-themes";
+import { getSettings } from "@/lib/actions/settings";
 
 interface AppSettings {
   site_name: string;
@@ -60,6 +61,25 @@ export function SettingsProvider({
   useEffect(() => {
     setSettings(mergeSettings(initialSettings));
   }, [initialSettings]);
+
+  // Periodic poll so admin changes in /settings (primary_color, accent_color,
+  // require_subscription, require_user_approval, site_name, etc.) propagate
+  // to other users without a manual page reload. 2-minute interval is fine
+  // — settings rarely change and this is purely background sync. Failures
+  // (network blip, server hiccup) silently keep the previous values.
+  useEffect(() => {
+    const intervalId = window.setInterval(async () => {
+      try {
+        const fresh = await getSettings();
+        if (Array.isArray(fresh)) {
+          setSettings(mergeSettings(fresh as Record<string, unknown>[]));
+        }
+      } catch {
+        // Network blip — keep previous values; next tick will retry.
+      }
+    }, 2 * 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   // Apply branding CSS variables when settings change
   useEffect(() => {

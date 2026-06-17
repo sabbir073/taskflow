@@ -19,6 +19,10 @@ interface Props {
       to the whole name (respects the admin-editable site_name setting). */
   name?: string;
   className?: string;
+  /** Override the wordmark text color when the default `text-foreground`
+      doesn't have enough contrast against the surrounding surface (e.g.
+      on the branded purple/dark gradient used by the auth pages). */
+  wordmarkClassName?: string;
 }
 
 const SIZES = {
@@ -38,6 +42,7 @@ export function Logo({
   display,
   name = "TaskMOS",
   className = "",
+  wordmarkClassName = "text-foreground",
 }: Props) {
   const s = SIZES[size];
   const isTaskMOS = name === "TaskMOS";
@@ -49,7 +54,7 @@ export function Logo({
         <Zap className={`${s.icon} text-white`} strokeWidth={2.5} />
       </span>
       {!compact && (
-        <span className={`${s.text} font-extrabold tracking-tight text-foreground`}>
+        <span className={`${s.text} font-extrabold tracking-tight ${wordmarkClassName}`}>
           {isTaskMOS ? (
             <>
               Task<span className="gradient-text">MOS</span>

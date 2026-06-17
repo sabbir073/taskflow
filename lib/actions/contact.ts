@@ -89,7 +89,8 @@ export async function submitContactForm(
           type: "system",
           title: "New Contact Message",
           message: `${parsed.name} (${parsed.email})${parsed.subject ? ` — ${parsed.subject}` : ""}`,
-          link: "/contact-messages",
+          // Admin lands on /inbox (Contact messages section).
+          link: "/inbox",
           data: { from_email: parsed.email },
         }));
         await db.from("notifications").insert(notifs as never[]);

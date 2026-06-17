@@ -1,5 +1,23 @@
 // Inline brand SVGs so we don't need an extra dependency. Fill color is
 // controlled via `color` on the parent, and we pass it through with `fill`.
+//
+// `PLATFORM_BRAND_SLUGS` below is the canonical set of slugs that resolve to
+// a real glyph here. Card surfaces (e.g. <PlatformTile> inside the
+// /tasks card) check it to decide between an SVG icon and a letter fallback
+// for less-iconic brands (review sites mostly).
+
+import { MapPin, Globe } from "lucide-react";
+import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { cn } from "@/lib/utils";
+
+// Slugs PlatformIcon renders a non-null SVG for. Keep in sync with the
+// `case` arms below — any addition needs to land in both places.
+export const PLATFORM_BRAND_SLUGS: ReadonlySet<string> = new Set([
+  "pinterest", "facebook", "twitter", "x", "instagram", "youtube",
+  "linkedin", "tiktok", "reddit", "discord", "telegram",
+  "spotify", "tidal", "deezer", "soundcloud", "bandcamp",
+  "threads", "quora", "google_maps", "website",
+]);
 
 interface Props {
   slug: string;
@@ -70,7 +88,93 @@ export function PlatformIcon({ slug, className = "w-5 h-5" }: Props) {
           <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
         </svg>
       );
+    case "spotify":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12A12 12 0 0 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+        </svg>
+      );
+    case "tidal":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12.012 3.992L8.008 7.996 4.004 3.992 0 7.996 4.004 12l4.004-4.004L12.012 12l-4.004 4.004 4.004 4.004 4.004-4.004L12.012 12l4.004-4.004zm4.004 4.004L20.02 4l3.98 3.996L20.02 12z"/>
+        </svg>
+      );
+    case "deezer":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M18.81 4.16h5.04V7H18.81zm0 4.34h5.04v2.84H18.81zm-6.27 0h5.04v2.84h-5.04zm0 4.34h5.04v2.84h-5.04zm6.27 0h5.04v2.84H18.81zM18.81 17.17h5.04v2.84H18.81zm-6.27 0h5.04v2.84h-5.04zM6.27 17.17h5.04v2.84H6.27zM0 17.17h5.04v2.84H0zm12.54-4.33h5.04v2.84h-5.04zm-6.27 0h5.04v2.84H6.27zM0 12.84h5.04v2.84H0z"/>
+        </svg>
+      );
+    case "soundcloud":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M11.56 8.87V17h8.76c1.85-.13 3.32-1.67 3.32-3.53 0-1.96-1.58-3.53-3.53-3.53-.49 0-.95.1-1.37.27-.28-3.18-2.94-5.68-6.19-5.68-.78 0-1.54.15-2.24.42-.27.1-.34.21-.34.43V8.7l1.59.17zm-1.59-.4l-.81.32V17h.81V8.47zm-2.42.55l-.81.61V17h.81V9.02zm-1.62 1.13l-.81.92V17h.81V10.15zm-1.62 1.16l-.81 1.23V17h.81v-5.69zM2.69 12.7L1.88 14v3h.81v-4.3zM1.07 14.3L.27 16v1h.8v-2.7z"/>
+        </svg>
+      );
+    case "bandcamp":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M0 18.75l7.437-13.5H24l-7.438 13.5H0z"/>
+        </svg>
+      );
+    case "threads":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12.186 24h-.007c-3.581-.024-6.334-1.205-8.184-3.509C2.35 18.44 1.5 15.586 1.472 12.01v-.017c.03-3.579.879-6.43 2.525-8.482C5.845 1.205 8.6.024 12.18 0h.014c2.746.02 5.043.725 6.826 2.098 1.677 1.29 2.858 3.13 3.509 5.467l-2.04.569c-1.104-3.96-3.898-5.984-8.304-6.015-2.91.022-5.11.936-6.54 2.717-1.34 1.667-2.03 4.077-2.057 7.164.026 3.087.717 5.497 2.057 7.164 1.43 1.781 3.63 2.695 6.54 2.717 2.623-.02 4.358-.631 5.8-2.045 1.647-1.613 1.618-3.593 1.09-4.798-.31-.71-.873-1.3-1.634-1.75-.192 1.352-.622 2.446-1.284 3.272-.886 1.102-2.14 1.704-3.73 1.79-1.202.065-2.361-.218-3.259-.801-1.063-.689-1.685-1.74-1.752-2.964-.065-1.19.408-2.285 1.33-3.082.88-.76 2.119-1.207 3.583-1.291a13.853 13.853 0 0 1 3.02.142c-.126-.742-.375-1.332-.74-1.756-.503-.582-1.279-.878-2.309-.881h-.029c-.825 0-1.947.227-2.662 1.298L7.582 6.475c.999-1.483 2.595-2.319 4.461-2.319h.046c3.018.018 4.86 1.79 5.04 4.95.103.045.205.092.305.141 1.426.696 2.464 1.728 3.014 3.018.851 2.005.926 5.258-1.738 7.856-2.103 2.054-4.581 2.95-7.586 2.967h-.007zm.052-15.05c-.196 0-.404.006-.625.022l-.005.001c-.864.05-1.508.296-1.964.745-.418.41-.617.93-.594 1.524.024.547.295.991.831 1.348.485.323 1.103.482 1.762.434.85-.05 1.61-.314 2.135-.97.521-.65.798-1.66.823-2.991-.738-.103-1.495-.113-2.063-.113z"/>
+        </svg>
+      );
+    case "quora":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12.738 18.701c-.831-1.635-1.805-3.287-3.708-3.287-.362 0-.727.061-1.057.211l-.648-1.295c.787-.679 2.072-1.232 3.715-1.232 2.553 0 3.858 1.221 4.9 2.791.609-1.336.91-3.094.91-5.305 0-5.522-1.715-8.273-5.226-8.273C7.118 2.311 5.4 5.064 5.4 10.583c0 5.495 1.717 8.219 5.225 8.219.731 0 1.452-.087 2.115-.103zm2.366 1.027c.967.943 2.013 1.945 3.444 1.945 1.572 0 2.211-1.215 2.34-2.176h1.413c-.062.997-.582 5.504-6.139 5.504-3.355 0-5.111-1.842-6.65-3.66C2.97 20.834-.001 16.49-.001 10.583c0-7.078 4.232-10.581 11.083-10.581 6.962 0 11.105 3.479 11.105 10.581 0 4.394-1.638 7.554-4.305 9.355z"/>
+        </svg>
+      );
+    case "google_maps":
+      // Lucide map-pin glyph — fits the Maps brand cleanly without a custom path.
+      return <MapPin className={className} />;
+    case "website":
+      // Lucide globe glyph — generic but instantly recognisable for "website".
+      return <Globe className={className} />;
     default:
       return null;
   }
+}
+
+// Shared brand tile used by every Platform/Task surface (task rows, manage
+// list, task-detail hero, the card grid). Renders the real brand glyph on the
+// brand-colored square when one exists, else a single capital letter (review
+// sites). Single source of truth so the icon/letter logic can't drift between
+// surfaces. `fill="currentColor"` + the wrapper's `text-white` paint the glyph
+// white on the colored background.
+export function PlatformTile({
+  slug,
+  name,
+  color,
+  className = "w-10 h-10 rounded-xl",
+  iconClassName = "w-5 h-5",
+  letterClassName = "text-base",
+}: {
+  slug: string;
+  name?: string;
+  color?: string;
+  className?: string;
+  iconClassName?: string;
+  letterClassName?: string;
+}) {
+  const cfg = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
+  const tileName = name || cfg?.name || slug || "?";
+  const tileColor = color || cfg?.color || "#666";
+  const letter = (tileName.charAt(0) || "?").toUpperCase();
+  return (
+    <div
+      className={cn("flex items-center justify-center shrink-0 text-white", className)}
+      style={{ backgroundColor: tileColor }}
+      aria-label={tileName}
+    >
+      {PLATFORM_BRAND_SLUGS.has(slug)
+        ? <PlatformIcon slug={slug} className={iconClassName} />
+        : <span className={cn("font-bold leading-none", letterClassName)}>{letter}</span>}
+    </div>
+  );
 }
