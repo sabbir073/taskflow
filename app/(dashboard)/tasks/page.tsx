@@ -9,15 +9,16 @@ import { Plus } from "lucide-react";
 
 export const metadata: Metadata = { title: "Tasks" };
 
-export default async function TasksPage() {
+export default async function TasksPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const user = await requireAuth();
   const isAdmin = isStaffRole(user.role);
+  const { tab } = await searchParams;
 
   return (
     <div>
       <PageHeader title="Tasks" description={isAdmin ? "Manage all tasks and approve user-created tasks" : "Create tasks or complete assigned tasks"}
         actions={<Link href="/tasks/create"><Btn size="sm"><Plus className="w-4 h-4 mr-1" /> Create Task</Btn></Link>} />
-      <TasksView isAdmin={isAdmin} userId={user.id} />
+      <TasksView isAdmin={isAdmin} userId={user.id} initialTab={tab} />
     </div>
   );
 }

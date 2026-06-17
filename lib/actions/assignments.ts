@@ -4,6 +4,8 @@ import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { checkActiveSubscription } from "@/lib/subscription-check";
 import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
+import { MUSIC_STREAM_SLUGS } from "@/lib/constants/platforms";
+import { recordAudit } from "@/lib/audit";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
 
 // Helper: check if user is suspended
@@ -54,6 +56,7 @@ async function cancelRemainingAssignments(db: ReturnType<typeof getServerClient>
 // ===== User: Get my task assignments =====
 export async function getMyTasks(params: PaginationParams & {
   status?: string;
+  category?: string;
 }): Promise<PaginatedResponse<Record<string, unknown>>> {
   const session = await auth();
   if (!session?.user?.id) return { data: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
@@ -66,7 +69,12 @@ export async function getMyTasks(params: PaginationParams & {
   let query = db
     .from("task_assignments")
     .select(
-      "*, tasks!inner(id, title, description, points, points_per_completion, priority, deadline, status, platform_id, task_type_id, task_data, images, urls, created_by, platforms!inner(name, slug, icon), task_types!inner(name, slug, proof_type))",
+      // `category` added so the worker grid can show the chip + filter by it.
+      // `task_bundle_items(...)` + `completion_bonus, point_budget, points_spent,
+      // max_completions` added in Entry #20 so the new responsive card layout
+      // can render per-bundle action pills, tier chip, total/bonus credit
+      // line, and slot progress bar without a second roundtrip.
+      "*, tasks!inner(id, title, description, points, points_per_completion, completion_bonus, point_budget, points_spent, max_completions, priority, deadline, status, category, platform_id, task_type_id, task_data, images, urls, created_by, platforms!inner(name, slug, icon), task_types!inner(name, slug, proof_type), task_bundle_items(id, points, sort_order, task_types!inner(slug, name)))",
       { count: "exact" }
     )
     .eq("user_id", session.user.id)
@@ -75,6 +83,9 @@ export async function getMyTasks(params: PaginationParams & {
     .neq("tasks.created_by", session.user.id);
 
   if (params.status) query = query.eq("status", params.status);
+  // Filter on the JOINED tasks.category column. PostgREST allows
+  // `<relation>.<column>` syntax for inner-join filters.
+  if (params.category) query = query.eq("tasks.category", params.category);
   query = query.order("created_at", { ascending: false });
   query = query.range(offset, offset + pageSize - 1);
 
@@ -170,11 +181,13 @@ export async function submitItemProof(
     if (subErr) return { success: false, error: subErr };
 
     // Resolve the item -> bundle item, parent assignment, parent task.
+    // `sort_order` is pulled so the sequential-bundle guard below can use it
+    // without a second round-trip just for that column.
     const { data: itemRow } = await db
       .from("assignment_item_submissions")
       .select(
         "id, status, bundle_item_id, assignment_id, " +
-        "task_bundle_items!inner(id, proof_type, task_id, task_types!inner(slug))," +
+        "task_bundle_items!inner(id, sort_order, proof_type, task_id, task_types!inner(slug))," +
         "task_assignments!inner(id, user_id, status, task_id, tasks!inner(title))"
       )
       .eq("id", itemSubmissionId)
@@ -189,6 +202,32 @@ export async function submitItemProof(
     if (assignment.status === "cancelled") return { success: false, error: "This task is no longer available" };
     if (["approved", "cancelled"].includes(item.status as string)) {
       return { success: false, error: "This item is not in a submittable state" };
+    }
+
+    // Sequential bundle order — refuse to accept proof for an item whose
+    // earlier siblings haven't reached at least 'submitted' yet. UI hides
+    // locked items (task-detail.tsx) but the server is the authority since
+    // a direct API call could bypass the UI. Music streams auto-approve on
+    // their own submit (see further down) so a music step satisfies this
+    // gate the moment its countdown ends.
+    const mySortOrder = Number((bundleItem as { sort_order?: number }).sort_order ?? 0);
+    if (mySortOrder > 0) {
+      const { data: siblings } = await db
+        .from("assignment_item_submissions")
+        .select("status, task_bundle_items!inner(sort_order)")
+        .eq("assignment_id", assignment.id);
+      const blocking = (siblings || []).find((s) => {
+        // PostgREST returns the joined row as either a single object (when
+        // the relation is to-one) or an array (default for many or when the
+        // type generator can't tell). Cast through unknown then handle both.
+        const sib = s as unknown as { status: string; task_bundle_items: { sort_order: number } | { sort_order: number }[] };
+        const bundleRow = Array.isArray(sib.task_bundle_items) ? sib.task_bundle_items[0] : sib.task_bundle_items;
+        const so = Number(bundleRow?.sort_order ?? 0);
+        return so < mySortOrder && !["submitted", "approved"].includes(String(sib.status));
+      });
+      if (blocking) {
+        return { success: false, error: "Complete the previous bundle item first" };
+      }
     }
 
     // Per-item proof-type validation. 'none' (auto-submitted, e.g. YouTube
@@ -222,14 +261,73 @@ export async function submitItemProof(
       return { success: false, error: "Failed to submit proof" };
     }
 
-    // Notify staff in real-time that an item needs review. We fan out per
-    // submission so admins see every item that lands instead of waiting for
-    // the whole bundle to be done.
-    const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
-    const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
     const taskId = bundleItem.task_id as number;
     const taskTitle = String((assignment.tasks as Record<string, unknown> | undefined)?.title || "a task");
-    const typeName = String((bundleItem.task_types as Record<string, unknown> | undefined)?.slug || "");
+    const typeSlug = String((bundleItem.task_types as Record<string, unknown> | undefined)?.slug || "");
+    const typeName = typeSlug; // used in notification copy
+
+    // Music auto-approve path. Re-checks the task_type slug against the
+    // server-side allowlist (MUSIC_STREAM_SLUGS) — never trusts the caller.
+    // On match, we immediately finalise via the existing approve RPC and
+    // stamp auto_approved_at so an admin can reverse within 24h (migration
+    // 052 + reverseAutoApprovedItem action). The worker becomes the
+    // recorded reviewer (auto_approved_at is the signal that this was not
+    // a human-reviewed approval).
+    const isMusicAutoApprove = MUSIC_STREAM_SLUGS.has(typeSlug);
+    if (isMusicAutoApprove) {
+      const { data: approveResult, error: approveErr } = await db.rpc("approve_item_and_finalize", {
+        p_item_submission_id: itemSubmissionId,
+        p_reviewer_id: session.user.id,
+      } as never);
+      if (approveErr) {
+        console.error("[submitItemProof] auto-approve rpc failed", approveErr);
+        // Auto-approve failed but the proof IS in the submitted state — fall
+        // through to the normal admin-review notification path so the item
+        // doesn't get stuck.
+      } else {
+        const ar = (approveResult || {}) as Record<string, unknown>;
+        if (ar.success) {
+          // Stamp the auto-approve timestamp so an admin can reverse within 24h.
+          await db
+            .from("assignment_item_submissions")
+            .update({ auto_approved_at: new Date().toISOString() } as never)
+            .eq("id", itemSubmissionId);
+
+          // Notify staff for awareness (NOT review — these are already
+          // approved; admin can audit/reverse from the audit log).
+          const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
+          const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
+          if (adminIds.length > 0) {
+            const submitterName = session.user.name || "A user";
+            const notifs = adminIds.map((uid) => ({
+              user_id: uid,
+              type: "system",
+              title: "Music play auto-approved",
+              message: `${submitterName} completed "${typeName || "a music play"}" for "${taskTitle}". Credits issued automatically. Reversible within 24h.`,
+              // Admin lands on /inbox where the "auto_reverse" section
+              // surfaces this row with click-through to /audit (Entry #14
+              // reverse panel).
+              link: `/inbox`,
+              data: {
+                assignment_id: assignment.id,
+                task_id: taskId,
+                item_submission_id: itemSubmissionId,
+                submitted_by: session.user.id,
+                auto_approved: true,
+              },
+            }));
+            await db.from("notifications").insert(notifs as never[]);
+          }
+          return { success: true, message: "Play approved — credits issued instantly" };
+        }
+      }
+    }
+
+    // Standard path: notify staff in real-time that an item needs review. We
+    // fan out per submission so admins see every item that lands instead of
+    // waiting for the whole bundle to be done.
+    const { data: admins } = await db.from("profiles").select("user_id").in("role", STAFF_ROLES as readonly string[]);
+    const adminIds = ((admins || []) as Record<string, unknown>[]).map((a) => a.user_id as string);
     if (adminIds.length > 0) {
       const submitterName = session.user.name || "A user";
       const notifs = adminIds.map((uid) => ({
@@ -237,7 +335,9 @@ export async function submitItemProof(
         type: "system",
         title: "Item submitted — Review Needed",
         message: `${submitterName} submitted "${typeName || "an action"}" for "${taskTitle}". Please review.`,
-        link: `/tasks/${taskId}`,
+        // Admin lands on /inbox; the "Bundle proof submissions" section
+        // surfaces this row with click-through to the task detail page.
+        link: `/inbox`,
         data: {
           assignment_id: assignment.id,
           task_id: taskId,
@@ -505,7 +605,12 @@ export async function getMyAssignmentForTaskWithItems(taskId: number): Promise<{
       "*, task_bundle_items!inner(*, task_types(name, slug, required_fields, proof_type))"
     )
     .eq("assignment_id", aRecord.id)
-    .order("bundle_item_id", { ascending: true });
+    // Order by the admin-defined `sort_order` on the joined bundle item so
+    // the worker's bundle list matches the configured sequence — needed by
+    // the sequential gate in task-detail.tsx. Previously we ordered by
+    // bundle_item_id (insertion order), which usually but not always
+    // matched the intended order.
+    .order("sort_order", { ascending: true, referencedTable: "task_bundle_items" });
 
   return {
     assignment: aRecord,
@@ -634,4 +739,104 @@ export async function getGroupTaskStatus(taskId: number): Promise<
       reviewed_at: (row.reviewed_at as string | null) || null,
     };
   });
+}
+
+// ============================================================================
+// Auto-approve reversal (admin-only, 24h window)
+// ============================================================================
+// Counterpart to the auto-approve path inside submitItemProof. If an admin
+// suspects a worker gamed the music-play-lock (e.g., 30s elapsed but no
+// genuine listen), they can reverse the auto-approval — refunding the task
+// budget and debiting the worker's wallet. Refused past the 24h window or
+// if already reversed. Reverse logic + atomic state changes live in
+// reverse_auto_approved_item RPC (migration 052).
+export async function reverseAutoApprovedItem(
+  itemSubmissionId: number,
+  reason: string
+): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    if (!isStaffRole(session.user.role)) return { success: false, error: "Unauthorized" };
+    if (!reason || reason.trim().length < 3) {
+      return { success: false, error: "Please provide a reason (at least 3 characters)" };
+    }
+
+    const db = getServerClient();
+    const { data: rpcResult, error: rpcErr } = await db.rpc("reverse_auto_approved_item", {
+      p_item_submission_id: itemSubmissionId,
+      p_reviewer_id: session.user.id,
+      p_reason: reason.trim(),
+    } as never);
+
+    if (rpcErr) {
+      console.error("[reverseAutoApprovedItem] rpc failed", rpcErr);
+      return { success: false, error: "Failed to reverse auto-approval" };
+    }
+    const r = (rpcResult || {}) as Record<string, unknown>;
+    if (!r.success) {
+      const code = String(r.code || "");
+      if (code === "not_found") return { success: false, error: "Item submission not found" };
+      if (code === "not_auto_approved") return { success: false, error: "This item wasn't auto-approved" };
+      if (code === "already_reversed") return { success: false, error: "Auto-approval already reversed" };
+      if (code === "window_expired") return { success: false, error: "24h reverse window expired" };
+      return { success: false, error: "Failed to reverse auto-approval" };
+    }
+
+    // Audit so a future "where did this debit come from" trace is one query
+    // away in admin_audit_log.
+    await recordAudit(
+      db,
+      session.user.id,
+      "reject_task",
+      "task",
+      String(itemSubmissionId),
+      { auto_approve_reversed: true, reason: reason.trim() }
+    );
+
+    return { success: true, message: "Auto-approval reversed — worker debited" };
+  } catch (err) {
+    console.error(err);
+    return { success: false, error: "Failed to reverse auto-approval" };
+  }
+}
+
+// List recent auto-approved items the admin can still reverse (within 24h).
+// Staff-only. Drives a future admin UI under /audit or a dedicated page.
+export async function getReversibleAutoApprovedItems(
+  params: PaginationParams = {}
+): Promise<PaginatedResponse<Record<string, unknown>>> {
+  const empty = { data: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
+  const session = await auth();
+  if (!session?.user?.id || !isStaffRole(session.user.role)) return empty;
+
+  const db = getServerClient();
+  const page = params.page || 1;
+  const pageSize = Math.min(params.pageSize || 20, 100);
+  const offset = (page - 1) * pageSize;
+
+  // 24h-ago threshold computed in the app rather than the DB so the index
+  // (idx_aim_auto_approve_pending_reverse) can serve both the bounded and
+  // unbounded variants without rewriting the predicate.
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, count } = await db
+    .from("assignment_item_submissions")
+    .select(
+      "id, status, points_awarded, auto_approved_at, " +
+      "task_bundle_items!inner(id, task_id, task_types!inner(slug, name))," +
+      "task_assignments!inner(id, user_id, users!task_assignments_user_id_fkey(name, email))",
+      { count: "exact" }
+    )
+    .not("auto_approved_at", "is", null)
+    .is("auto_approve_reversed_at", null)
+    .gte("auto_approved_at", cutoff)
+    .order("auto_approved_at", { ascending: false })
+    .range(offset, offset + pageSize - 1);
+
+  // Supabase types the joined-relation select narrowly; cast through unknown
+  // since the matching consumer-side types are loose Record<string, unknown>.
+  const rows = (data || []) as unknown as Record<string, unknown>[];
+  const total = count || 0;
+  return { data: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
 }

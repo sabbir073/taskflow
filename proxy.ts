@@ -26,6 +26,7 @@ const adminOnlyPaths = [
   "/audit",
   "/popups",
   "/appeals",
+  "/group-applications",
 ];
 // Paths a moderator may also access. These mirror the STAFF_ROLES grouping
 // in lib/constants/roles.ts.
@@ -36,6 +37,7 @@ const staffOnlyPaths = [
   "/payments",
   "/contact-messages",
   "/support",
+  "/inbox",
 ];
 const adminRoles = ["super_admin", "admin"];
 const staffRoles = ["super_admin", "admin", "moderator"];

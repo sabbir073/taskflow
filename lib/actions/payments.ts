@@ -24,6 +24,27 @@ function isAdmin(role: string | undefined): boolean {
   return isStaffRole(role);
 }
 
+// Undo the atomic "claim" (status → approved) when value-delivery fails
+// downstream, so a payment is never left marked approved while the user
+// got no subscription / credits. Lets the admin safely retry. Best-effort:
+// if the revert itself errors we've still logged the original failure and
+// surfaced it to the admin via the returned error.
+async function revertPaymentClaim(db: DB, paymentId: number) {
+  try {
+    await db
+      .from("payments")
+      .update({
+        status: "pending",
+        reviewed_by: null,
+        reviewed_at: null,
+        updated_at: new Date().toISOString(),
+      } as never)
+      .eq("id", paymentId);
+  } catch (err) {
+    console.error("[reviewPayment] revert failed", err);
+  }
+}
+
 async function notifyAdmins(
   db: DB,
   title: string,
@@ -379,7 +400,8 @@ export async function submitPayment(formData: z.infer<typeof paymentSubmitSchema
       db,
       "New Payment — Review Needed",
       `${userName} submitted a payment: ${description}. Please review.`,
-      `/payments`,
+      // Admin lands on /inbox (Payments to review section).
+      `/inbox`,
       { user_id: session.user.id, purpose: validated.purpose, transaction_id: validated.transaction_id }
     );
 
@@ -598,14 +620,11 @@ export async function reviewPayment(
       return { success: false, error: "This payment was already reviewed by another admin" };
     }
 
-    await recordAudit(
-      db,
-      session.user.id,
-      action === "approve" ? "approve_payment" : "reject_payment",
-      "payment",
-      String(paymentId),
-      { amount: Number(p.amount || 0), currency: String(p.currency || "usd"), purpose: String(p.purpose || ""), notes: notes || null }
-    );
+    // Audit metadata reused by both branches. The actual recordAudit() call
+    // is deferred until we know the outcome succeeded — for approve it fires
+    // only AFTER value-delivery commits, so a reverted (failed) approval
+    // isn't logged as a completed one.
+    const auditMeta = { amount: Number(p.amount || 0), currency: String(p.currency || "usd"), purpose: String(p.purpose || ""), notes: notes || null };
 
     // Pre-gather invoice data used for email/PDF regardless of outcome
     const buyerRow = p.users as Record<string, unknown> | undefined;
@@ -649,7 +668,12 @@ export async function reviewPayment(
           const remaining = await computeRemainingQuota(db, userId);
 
           // Deactivate existing subs
-          await db.from("user_subscriptions").update({ status: "cancelled" } as never).eq("user_id", userId).eq("status", "active");
+          const { error: deactErr } = await db.from("user_subscriptions").update({ status: "cancelled" } as never).eq("user_id", userId).eq("status", "active");
+          if (deactErr) {
+            console.error("[reviewPayment] deactivate old sub failed", deactErr);
+            await revertPaymentClaim(db, paymentId);
+            return { success: false, error: "Couldn't deactivate the previous subscription. Payment left pending — try again." };
+          }
 
           // Fetch plan + included credits
           const { data: plan } = await db.from("plans").select("name, period, included_credits").eq("id", planId).single();
@@ -673,7 +697,7 @@ export async function reviewPayment(
           else if (periodType === "half_yearly") { now.setMonth(now.getMonth() + 6); expiresAt = now.toISOString(); }
           else if (periodType === "yearly") { now.setFullYear(now.getFullYear() + 1); expiresAt = now.toISOString(); }
 
-          await db.from("user_subscriptions").insert({
+          const { error: subErr } = await db.from("user_subscriptions").insert({
             user_id: userId,
             plan_id: planId,
             period_type: periodType,
@@ -692,11 +716,16 @@ export async function reviewPayment(
             notified_expiring_1d: false,
             notified_expired: false,
           } as never);
+          if (subErr) {
+            console.error("[reviewPayment] subscription insert failed", subErr);
+            await revertPaymentClaim(db, paymentId);
+            return { success: false, error: "Couldn't create the subscription. Payment left pending — try again." };
+          }
 
           // Credit the plan's included credits to the user's wallet
           // (atomic — no race between concurrent approvals).
           if (includedCredits > 0) {
-            await db.rpc("adjust_user_points", {
+            const { error: creditErr } = await db.rpc("adjust_user_points", {
               p_user_id: userId,
               p_delta: includedCredits,
               p_action: "milestone",
@@ -704,6 +733,11 @@ export async function reviewPayment(
               p_reference_type: "payment",
               p_reference_id: String(paymentId),
             } as never);
+            if (creditErr) {
+              console.error("[reviewPayment] plan credits RPC failed", creditErr);
+              await revertPaymentClaim(db, paymentId);
+              return { success: false, error: "Subscription step failed while crediting points. Payment left pending — try again." };
+            }
 
             // Dedicated notification so the user sees the credit drop
             await db.from("notifications").insert({
@@ -719,12 +753,17 @@ export async function reviewPayment(
 
         // For signup payments, also approve the user's profile
         if (purpose === "signup") {
-          await db.from("profiles").update({ is_approved: true } as never).eq("user_id", userId);
+          const { error: approveErr } = await db.from("profiles").update({ is_approved: true } as never).eq("user_id", userId);
+          if (approveErr) {
+            console.error("[reviewPayment] signup profile approve failed", approveErr);
+            await revertPaymentClaim(db, paymentId);
+            return { success: false, error: "Couldn't approve the signup account. Payment left pending — try again." };
+          }
         }
       } else if (purpose === "points") {
         const points = Number(p.points_amount || 0);
         if (points > 0) {
-          await db.rpc("adjust_user_points", {
+          const { error: ptsErr } = await db.rpc("adjust_user_points", {
             p_user_id: userId,
             p_delta: points,
             p_action: "milestone",
@@ -732,8 +771,16 @@ export async function reviewPayment(
             p_reference_type: "payment",
             p_reference_id: String(paymentId),
           } as never);
+          if (ptsErr) {
+            console.error("[reviewPayment] points purchase RPC failed", ptsErr);
+            await revertPaymentClaim(db, paymentId);
+            return { success: false, error: "Couldn't credit the purchased points. Payment left pending — try again." };
+          }
         }
       }
+
+      // Value delivery committed — NOW it's safe to log the approval.
+      await recordAudit(db, session.user.id, "approve_payment", "payment", String(paymentId), auditMeta);
 
       await db.from("notifications").insert({
         user_id: userId,
@@ -779,22 +826,33 @@ export async function reviewPayment(
       return { success: true, message: "Payment approved and processed" };
     }
 
-    if (action === "reject" && userId) {
-      await db.from("notifications").insert({
-        user_id: userId,
-        type: "system",
-        title: "Payment Rejected",
-        message: `Your payment was rejected${notes ? `: ${notes}` : "."}`,
-        link: "/plans",
-        data: { payment_id: paymentId },
-      } as never);
+    if (action === "reject") {
+      // Reject has no value-delivery that can fail, so audit immediately
+      // (the claim already flipped status to "rejected").
+      await recordAudit(db, session.user.id, "reject_payment", "payment", String(paymentId), auditMeta);
 
-      if (buyerEmail) {
-        await sendPaymentRejectedEmail(buyerEmail, buyerName, emailSummary, notes || undefined);
+      if (userId) {
+        await db.from("notifications").insert({
+          user_id: userId,
+          type: "system",
+          title: "Payment Rejected",
+          message: `Your payment was rejected${notes ? `: ${notes}` : "."}`,
+          link: "/plans",
+          data: { payment_id: paymentId },
+        } as never);
+
+        if (buyerEmail) {
+          await sendPaymentRejectedEmail(buyerEmail, buyerName, emailSummary, notes || undefined);
+        }
       }
+
+      return { success: true, message: "Payment rejected" };
     }
 
-    return { success: true, message: action === "approve" ? "Payment approved" : "Payment rejected" };
+    // Pathological fallthrough (e.g. approve with no user_id — shouldn't
+    // happen since payments always carry a user). Status was already
+    // claimed; report success without mis-auditing.
+    return { success: true, message: "Payment reviewed" };
   } catch (err) {
 
     console.error(err);

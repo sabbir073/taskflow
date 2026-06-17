@@ -70,28 +70,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   callbacks: {
     async jwt({ token, user, trigger, session: updatedSession }) {
-      // Initial sign-in: carry the auth row's name/email/image plus the
-      // profile's role/status/is_approved into the JWT. We can't rely on
-      // NextAuth v5's auto-copy here because we don't return the full
-      // shape from authorize() — be explicit about every field that
-      // downstream code reads off `session.user`.
+      // Initial sign-in: carry the auth row's identity (id/name/email/image)
+      // into the JWT. role/status/is_approved are populated by the always-
+      // fresh block below (which runs on every call, including this one),
+      // so we don't duplicate the profile lookup here.
       if (user) {
         token.id = user.id!;
         if (user.name !== undefined) token.name = user.name;
         if (user.email !== undefined) token.email = user.email;
         if (user.image !== undefined) token.picture = user.image as string | null;
-
-        const supabase = getServerClient();
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role, status, is_approved")
-          .eq("user_id", user.id!)
-          .single();
-
-        const profileData = profile as Record<string, unknown> | null;
-        token.role = (profileData?.role as string) || "user";
-        token.status = (profileData?.status as string) || "active";
-        token.is_approved = profileData?.is_approved !== false; // default true if missing
       }
 
       // Client-side `useSession().update({ name, image })` path. Lets the
@@ -102,6 +89,47 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (typeof incoming.name === "string") token.name = incoming.name;
         if (typeof incoming.image === "string" || incoming.image === null) {
           token.picture = incoming.image as string | null;
+        }
+      }
+
+      // Always-fresh role / status / is_approved. Runs on every server-side
+      // auth() call — middleware, layout, page, server action — so an admin
+      // promoting a user → admin (or demoting, or suspending) is reflected
+      // on the target user's next request without forcing them to log out
+      // and back in. Cost is one cheap PostgREST SELECT (~few ms via the
+      // Supabase pooler).
+      //
+      // Without this, the JWT cookie's role/status/is_approved sat stale
+      // for the JWT's 24h lifetime: promoted admins still got bounced off
+      // /audit, /inbox, etc.; suspensions only kicked in via the dashboard
+      // layout's separate fresh-DB read; sidebar nav stayed wrong.
+      //
+      // Failure mode: a DB hiccup just keeps the previous token values —
+      // we don't want a transient network blip to silently drop an admin
+      // to user mid-session. The initial sign-in branch above sets `id`,
+      // so a `!token.id` skip here only happens on a malformed/anon token.
+      if (token.id) {
+        try {
+          const supabase = getServerClient();
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role, status, is_approved")
+            .eq("user_id", token.id as string)
+            .single();
+          const p = profile as Record<string, unknown> | null;
+          if (p) {
+            token.role = (p.role as string) || "user";
+            token.status = (p.status as string) || "active";
+            token.is_approved = p.is_approved !== false;
+          } else if (token.role === undefined) {
+            // First call AND no profile row found — defaults so downstream
+            // code never sees `undefined` role.
+            token.role = "user";
+            token.status = "active";
+            token.is_approved = true;
+          }
+        } catch (err) {
+          console.error("[auth.jwt] profile re-read failed", err);
         }
       }
 

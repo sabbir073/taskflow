@@ -13,6 +13,7 @@ import {
   sendAccountBannedEmail,
   sendSignupRejectedEmail,
   sendPasswordChangedEmail,
+  sendPasswordResetEmail,
 } from "@/lib/email";
 import { escapePgLikeOr } from "@/lib/utils";
 import { recordAudit } from "@/lib/audit";
@@ -204,7 +205,16 @@ export async function getUsers(params: PaginationParams & {
   if (params.approval === "approved") query = query.eq("is_approved", true);
   const safeSearch = params.search ? escapePgLikeOr(params.search) : "";
   if (safeSearch) {
-    query = query.or(`users.name.ilike.%${safeSearch}%,users.email.ilike.%${safeSearch}%`);
+    // Filter on the embedded `users` table. The `.or()` columns MUST be
+    // scoped via `referencedTable` — the previous form
+    // `or("users.name.ilike...")` produced a PostgREST "failed to parse
+    // logic tree" error, which getUsers swallowed and returned an empty
+    // list, so search silently matched nothing. Combined with the !inner
+    // join, this drops profiles whose user matches neither field.
+    query = query.or(
+      `name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%`,
+      { referencedTable: "users" },
+    );
   }
 
   const sortBy = params.sortBy || "created_at";
@@ -788,8 +798,151 @@ export async function getPendingApprovalUsers(params?: PaginationParams): Promis
     .from("profiles")
     .select("*, users!inner(id, name, email, image, created_at)", { count: "exact" })
     .eq("is_approved", false)
+    // Exclude rejected signups (rejectUser sets status='banned', is_approved
+    // stays false) so they don't linger in the pending-approval queue forever.
+    .neq("status", "banned")
     .order("created_at", { ascending: true })
     .range(offset, offset + pageSize - 1);
 
   return { data: (data || []) as Record<string, unknown>[], total: count || 0, page, pageSize, totalPages: Math.ceil((count || 0) / pageSize) };
+}
+
+// ===== Admin: Send password reset link to any user =====
+// Creates a fresh `verification_tokens` row (30-min expiry) and emails the
+// user the standard /forgot-password reset link. Same email + token shape as
+// the public `forgotPassword` flow in lib/actions/auth.ts — admin call just
+// bypasses the per-email rate limit (the public path is what stops a spray
+// attack; here we already gate by staff role + per-actor rate limit). The
+// admin never sees the user's password.
+export async function adminSendPasswordReset(
+  targetUserId: string,
+): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    if (!isStaffRole(session.user.role)) return { success: false, error: "Staff only" };
+
+    // Per-actor throttle so a compromised admin account can't reset every
+    // user's password in a loop. 15 / 5 min is loose enough for legitimate
+    // batch onboarding but cuts off spray attempts.
+    const rate = checkRate("admin-reset-password", session.user.id, 15, 5 * 60 * 1000);
+    if (!rate.allowed) {
+      return { success: false, error: `Too many password-reset actions. Try again in ${formatRetryAfter(rate.retryAfterSec)}.` };
+    }
+
+    const db = getServerClient();
+    const { data: target } = await db
+      .from("users")
+      .select("id, email, name")
+      .eq("id", targetUserId)
+      .single();
+    if (!target) return { success: false, error: "User not found" };
+    const row = target as Record<string, unknown>;
+    const email = String(row.email || "");
+    if (!email) return { success: false, error: "User has no email on file" };
+
+    const token = crypto.randomUUID();
+    const expires = new Date(Date.now() + 30 * 60 * 1000);
+    await db.from("verification_tokens").insert({
+      identifier: email,
+      token,
+      expires: expires.toISOString(),
+    } as never);
+
+    // Best-effort email; never block the action on SMTP failure. Matches the
+    // pattern in changePassword + forgotPassword + the rest of users.ts.
+    try {
+      await sendPasswordResetEmail(email, token);
+    } catch (err) {
+      console.error("[adminSendPasswordReset] email send failed", err);
+    }
+
+    await recordAudit(db, session.user.id, "password_reset_admin", "user", targetUserId, {
+      method: "email",
+      target_email: email,
+    });
+
+    return { success: true, message: `Reset link sent to ${email}. Link expires in 30 minutes.` };
+  } catch (err) {
+    console.error("[adminSendPasswordReset]", err);
+    return { success: false, error: "Failed to send reset link" };
+  }
+}
+
+// ===== Admin: Set a temporary password directly =====
+// Admin types or generates a password; server validates the complexity rule
+// (same as changePassword), hashes with bcrypt cost 12, and stores it. The
+// user gets a `sendPasswordChangedEmail` notification so they have an audit
+// trail showing the admin acted on their account. Admin sees the password
+// once in the UI dialog to share out-of-band.
+//
+// Self-reset is intentionally blocked here — admins must use Profile →
+// Change Password for their own account, which requires the current password
+// (and so can't be used to escalate after a session hijack).
+export async function adminSetUserPassword(
+  targetUserId: string,
+  newPassword: string,
+): Promise<ApiResponse> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+    if (!isStaffRole(session.user.role)) return { success: false, error: "Staff only" };
+
+    if (session.user.id === targetUserId) {
+      return { success: false, error: "Use Profile → Change Password for your own account." };
+    }
+
+    const rate = checkRate("admin-reset-password", session.user.id, 15, 5 * 60 * 1000);
+    if (!rate.allowed) {
+      return { success: false, error: `Too many password-reset actions. Try again in ${formatRetryAfter(rate.retryAfterSec)}.` };
+    }
+
+    // Same password complexity rule as `changePassword` for self-service.
+    const passwordSchema = z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(/[A-Z]/, "Must include an uppercase letter")
+      .regex(/[0-9]/, "Must include a digit")
+      .regex(/[^A-Za-z0-9]/, "Must include a symbol");
+    const parsed = passwordSchema.safeParse(newPassword);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || "Password too weak" };
+    }
+
+    const db = getServerClient();
+    const { data: target } = await db
+      .from("users")
+      .select("id, email, name")
+      .eq("id", targetUserId)
+      .single();
+    if (!target) return { success: false, error: "User not found" };
+    const row = target as Record<string, unknown>;
+    const email = String(row.email || "");
+    const name = String(row.name || "there");
+
+    const newHash = await hash(newPassword, 12);
+    await db
+      .from("users")
+      .update({ password_hash: newHash } as never)
+      .eq("id", targetUserId);
+
+    // Notify the user — same email we send on self-service changePassword
+    // so they see an audit trail. IP is null here since the admin (not the
+    // target user) initiated the change.
+    try {
+      if (email) await sendPasswordChangedEmail(email, name, new Date().toISOString(), undefined);
+    } catch (err) {
+      console.error("[adminSetUserPassword] notification email failed", err);
+    }
+
+    await recordAudit(db, session.user.id, "password_reset_admin", "user", targetUserId, {
+      method: "direct_set",
+      target_email: email,
+    });
+
+    return { success: true, message: `Password updated for ${email}.` };
+  } catch (err) {
+    console.error("[adminSetUserPassword]", err);
+    return { success: false, error: "Failed to set password" };
+  }
 }

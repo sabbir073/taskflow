@@ -3,8 +3,8 @@
 import { useState, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { Card, CardContent, CardFooter, Input, Btn, Select, Badge, Modal } from "@/components/ui";
-import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, X, Trophy, Target, Flame, Calendar, Plus, Minus, CheckCircle, XCircle, Clock, ShieldCheck, ShieldAlert, Download, Loader2, Users as UsersIcon } from "lucide-react";
-import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints, useApproveUser, useRejectUser } from "@/hooks/use-users";
+import { Search, MoreHorizontal, Shield, UserX, UserCheck, Trash2, Coins, CreditCard, Eye, EyeOff, X, Trophy, Target, Flame, Calendar, Plus, Minus, CheckCircle, XCircle, Clock, ShieldCheck, ShieldAlert, Download, Loader2, Users as UsersIcon, KeyRound, Mail, Sparkles, Copy } from "lucide-react";
+import { useUsers, useUpdateUserRole, useUpdateUserStatus, useDeleteUser, useAssignPoints, useApproveUser, useRejectUser, useAdminSendPasswordReset, useAdminSetUserPassword } from "@/hooks/use-users";
 import { getUserById } from "@/lib/actions/users";
 import { exportUsersCsv } from "@/lib/actions/exports";
 import { toast } from "sonner";
@@ -15,6 +15,25 @@ import { ROLE_LABELS } from "@/lib/constants/roles";
 import type { UserRole, UserStatus } from "@/types/database";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "error"> = { active: "success", suspended: "warning", banned: "error" };
+
+// Extracts the display fields off a profiles+users joined row. Shared by the
+// desktop table row and the mobile card so the two layouts never drift.
+function getUserRowFields(row: Record<string, unknown>) {
+  const u = row.users as Record<string, unknown> | undefined;
+  return {
+    userId: (u?.id || row.user_id) as string,
+    name: String(u?.name || "Unknown"),
+    email: String(u?.email || ""),
+    image: (u?.image as string | null | undefined) || null,
+    emailVerified: !!u?.email_verified,
+    role: row.role as UserRole,
+    status: row.status as UserStatus,
+    isApproved: row.is_approved !== false,
+    points: Number(row.total_points || 0),
+    tasks: Number(row.tasks_completed || 0),
+    joined: String(u?.created_at || row.created_at || ""),
+  };
+}
 
 export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
   // Moderators cannot promote anyone to admin/super_admin (privilege
@@ -52,6 +71,9 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; role: UserRole; label: string; description: string } | null>(null);
   const [statusChangeTarget, setStatusChangeTarget] = useState<{ userId: string; status: UserStatus; label: string; description: string } | null>(null);
+  // Password-reset dialog target — captures the userId AND email so the
+  // dialog can echo "Send reset link to <email>" without a second fetch.
+  const [passwordResetTarget, setPasswordResetTarget] = useState<{ userId: string; email: string } | null>(null);
   const pointsTitleId = useId();
   const viewProfileTitleId = useId();
 
@@ -60,6 +82,29 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
     const data = await getUserById(userId);
     setViewProfile(data as Record<string, unknown> | null);
     setLoadingProfile(false);
+  }
+
+  // Position + open the portal action menu. Shared by the desktop table cell
+  // and the mobile card so both triggers use identical placement logic.
+  function openActionMenu(e: React.MouseEvent<HTMLButtonElement>, userId: string) {
+    if (openMenu === userId) { setOpenMenu(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const MENU_WIDTH = 184;
+    const MENU_HEIGHT = 360; // bumped from 320 — menu grew to ~12 items (Entry #31)
+    const PAD = 8;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const goUp = spaceBelow < MENU_HEIGHT + PAD && spaceAbove > spaceBelow;
+    let top = goUp
+      ? Math.max(PAD, rect.top - 4 - MENU_HEIGHT)
+      : Math.min(window.innerHeight - MENU_HEIGHT - PAD, rect.bottom + 4);
+    if (top < PAD) top = PAD;
+    setMenuPos({
+      top,
+      left: Math.max(PAD, Math.min(window.innerWidth - MENU_WIDTH - PAD, rect.right - MENU_WIDTH)),
+      placement: goUp ? "up" : "down",
+    });
+    setOpenMenu(userId);
   }
 
   const { data, isLoading } = useUsers({ page, pageSize: 20, search, role: roleFilter || undefined, status: statusFilter || undefined, approval: approvalFilter || undefined });
@@ -99,29 +144,36 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by name or email..." className="pl-11" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+      {/* Filter row — mobile: search + icon-Export on top, 3 filters in a
+          2-col grid below. sm+: everything flows inline as one row. */}
+      <div className="space-y-3 sm:space-y-0 sm:flex sm:flex-row sm:gap-3">
+        <div className="flex gap-3 sm:contents">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search by name or email..." className="pl-11" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+          </div>
+          <Btn variant="outline" onClick={handleExport} disabled={exporting} className="shrink-0 sm:order-last">
+            {exporting ? <Loader2 className="w-3.5 h-3.5 sm:mr-1 animate-spin" /> : <Download className="w-3.5 h-3.5 sm:mr-1" />}
+            <span className="hidden sm:inline">Export CSV</span>
+          </Btn>
         </div>
-        <Select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }} className="sm:w-44">
-          <option value="">All Roles</option><option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="moderator">Moderator</option><option value="group_leader">Group Leader</option><option value="user">Member</option>
-        </Select>
-        <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="sm:w-44">
-          <option value="">All Statuses</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="banned">Banned</option>
-        </Select>
-        <Select value={approvalFilter} onChange={(e) => { setApprovalFilter(e.target.value as "" | "pending" | "approved"); setPage(1); }} className="sm:w-44">
-          <option value="">All Approvals</option>
-          <option value="pending">Awaiting Approval</option>
-          <option value="approved">Approved</option>
-        </Select>
-        <Btn variant="outline" onClick={handleExport} disabled={exporting}>
-          {exporting ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Download className="w-3.5 h-3.5 mr-1" />}
-          Export CSV
-        </Btn>
+        <div className="grid grid-cols-2 gap-3 sm:contents">
+          <Select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }} className="sm:w-44">
+            <option value="">All Roles</option><option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="moderator">Moderator</option><option value="group_leader">Group Leader</option><option value="user">Member</option>
+          </Select>
+          <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="sm:w-44">
+            <option value="">All Statuses</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="banned">Banned</option>
+          </Select>
+          <Select value={approvalFilter} onChange={(e) => { setApprovalFilter(e.target.value as "" | "pending" | "approved"); setPage(1); }} className="col-span-2 sm:col-span-1 sm:w-44">
+            <option value="">All Approvals</option>
+            <option value="pending">Awaiting Approval</option>
+            <option value="approved">Approved</option>
+          </Select>
+        </div>
       </div>
 
-      <Card>
+      {/* DESKTOP — full table (lg+). Mobile/tablet use the card list below. */}
+      <Card className="hidden lg:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -140,18 +192,7 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
                 )) : users.length === 0 ? (
                   <tr><td colSpan={7} className="px-5 py-12 text-center text-muted-foreground">No users found</td></tr>
                 ) : users.map((row) => {
-                  const u = row.users as Record<string, unknown> | undefined;
-                  const userId = (u?.id || row.user_id) as string;
-                  const name = String(u?.name || "Unknown");
-                  const email = String(u?.email || "");
-                  const image = (u?.image as string | null | undefined) || null;
-                  const emailVerified = !!u?.email_verified;
-                  const role = row.role as UserRole;
-                  const status = row.status as UserStatus;
-                  const isApproved = row.is_approved !== false;
-                  const points = Number(row.total_points || 0);
-                  const tasks = Number(row.tasks_completed || 0);
-                  const joined = String(u?.created_at || row.created_at || "");
+                  const { userId, name, email, image, emailVerified, role, status, isApproved, points, tasks, joined } = getUserRowFields(row);
 
                   return (
                     <tr key={userId} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
@@ -192,29 +233,7 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
                       <td className="px-5 py-3 text-muted-foreground">{formatDate(joined)}</td>
                       <td className="px-5 py-3 text-right">
                         <button
-                          onClick={(e) => {
-                            if (openMenu === userId) { setOpenMenu(null); return; }
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const MENU_WIDTH = 184;
-                            const MENU_HEIGHT = 320;
-                            const PAD = 8;
-                            const spaceBelow = window.innerHeight - rect.bottom;
-                            const spaceAbove = rect.top;
-                            const goUp = spaceBelow < MENU_HEIGHT + PAD && spaceAbove > spaceBelow;
-                            let top: number;
-                            if (goUp) {
-                              top = Math.max(PAD, rect.top - 4 - MENU_HEIGHT);
-                            } else {
-                              top = Math.min(window.innerHeight - MENU_HEIGHT - PAD, rect.bottom + 4);
-                              if (top < PAD) top = PAD;
-                            }
-                            setMenuPos({
-                              top,
-                              left: Math.max(PAD, Math.min(window.innerWidth - MENU_WIDTH - PAD, rect.right - MENU_WIDTH)),
-                              placement: goUp ? "up" : "down",
-                            });
-                            setOpenMenu(userId);
-                          }}
+                          onClick={(e) => openActionMenu(e, userId)}
                           className="p-2 rounded-lg hover:bg-muted transition-colors"
                         >
                           <MoreHorizontal className="w-4 h-4" />
@@ -238,6 +257,71 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
         )}
       </Card>
 
+      {/* MOBILE / TABLET — stacked cards (<lg). Same row data + action menu
+          as the desktop table; no horizontal scrolling. */}
+      <div className="lg:hidden space-y-3">
+        {isLoading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i}><CardContent><div className="h-20 bg-muted rounded-xl animate-pulse" /></CardContent></Card>
+          ))
+        ) : users.length === 0 ? (
+          <Card><CardContent className="py-12 text-center text-muted-foreground">No users found</CardContent></Card>
+        ) : (
+          users.map((row) => {
+            const { userId, name, email, image, emailVerified, role, status, isApproved, points, tasks, joined } = getUserRowFields(row);
+            return (
+              <Card key={userId} className="overflow-hidden">
+                <div className="p-4 flex items-start gap-3">
+                  <button onClick={() => openProfile(userId)} className="shrink-0" aria-label={`View ${name}'s profile`}>
+                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary overflow-hidden">
+                      {image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={image} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        getInitials(name)
+                      )}
+                    </div>
+                  </button>
+                  <button onClick={() => openProfile(userId)} className="flex-1 min-w-0 text-left">
+                    <p className="font-semibold truncate flex items-center gap-1.5">
+                      {name}
+                      {emailVerified ? (
+                        <ShieldCheck className="w-3.5 h-3.5 text-success shrink-0" aria-label="Email verified" />
+                      ) : (
+                        <ShieldAlert className="w-3.5 h-3.5 text-warning shrink-0" aria-label="Email not verified" />
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">{email}</p>
+                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                      <Badge variant="primary">{ROLE_LABELS[role] || role}</Badge>
+                      <Badge variant={STATUS_VARIANT[status] || "default"}>{status}</Badge>
+                      {!isApproved && <Badge variant="warning"><Clock className="w-2.5 h-2.5 mr-0.5" /> Pending</Badge>}
+                    </div>
+                  </button>
+                  <button onClick={(e) => openActionMenu(e, userId)} className="p-2 rounded-lg hover:bg-muted transition-colors shrink-0" aria-label="User actions">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="px-4 py-2.5 border-t border-border/50 bg-muted/20 flex items-center gap-4 text-xs">
+                  <span className="flex items-center gap-1.5"><Trophy className="w-3.5 h-3.5 text-warning" /> <span className="font-semibold text-foreground">{points.toFixed(2)}</span> pts</span>
+                  <span className="flex items-center gap-1.5"><Target className="w-3.5 h-3.5 text-success" /> <span className="font-semibold text-foreground">{tasks}</span> tasks</span>
+                  <span className="ml-auto text-muted-foreground">{formatDate(joined)}</span>
+                </div>
+              </Card>
+            );
+          })
+        )}
+        {totalPages > 1 && (
+          <div className="flex justify-between items-center pt-2">
+            <p className="text-sm text-muted-foreground">Page {page} of {totalPages} ({data?.total || 0})</p>
+            <div className="flex gap-2">
+              <Btn variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Btn>
+              <Btn variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Portal-rendered action menu — escapes table overflow so it's always fully visible */}
       {mounted && openMenu && menuPos && (() => {
         const row = users.find((r) => {
@@ -249,6 +333,8 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
         const userId = openMenu;
         const status = row.status as UserStatus;
         const rowApproved = row.is_approved !== false;
+        const rowUser = row.users as Record<string, unknown> | undefined;
+        const rowEmail = String(rowUser?.email || "");
         const itemCls = "flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-muted";
         const iconCls = "w-3.5 h-3.5";
         return createPortal(
@@ -282,6 +368,7 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
               <button onClick={() => { setPointsTarget(userId); setPointsMode("assign"); setOpenMenu(null); }} className={itemCls}><Plus className={`${iconCls} text-success`} /> Assign Points</button>
               <button onClick={() => { setPointsTarget(userId); setPointsMode("deduct"); setOpenMenu(null); }} className={itemCls}><Minus className={`${iconCls} text-error`} /> Deduct Points</button>
               <button onClick={() => { setPlanTarget(userId); setOpenMenu(null); }} className={itemCls}><CreditCard className={`${iconCls} text-primary`} /> Assign Plan</button>
+              <button onClick={() => { setPasswordResetTarget({ userId, email: rowEmail }); setOpenMenu(null); }} className={itemCls}><KeyRound className={`${iconCls} text-primary`} /> Reset Password</button>
               <div className="border-t border-border/50 my-1" />
               <button onClick={() => { setDeleteTarget(userId); setOpenMenu(null); }} className={`${itemCls} text-error hover:bg-error/5`}><Trash2 className={iconCls} /> Ban &amp; Anonymize</button>
             </div>
@@ -291,6 +378,14 @@ export function UsersTable({ currentUserRole }: { currentUserRole: UserRole }) {
       })()}
 
       <ConfirmDialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) removeUser.mutate(deleteTarget); setDeleteTarget(null); }} title="Ban & Anonymize User" description="This will ban the user and anonymize their data. This action cannot be undone." confirmLabel="Ban & Anonymize" isLoading={removeUser.isPending} />
+
+      {passwordResetTarget && (
+        <PasswordResetDialog
+          userId={passwordResetTarget.userId}
+          email={passwordResetTarget.email}
+          onClose={() => setPasswordResetTarget(null)}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={!!roleChangeTarget}
@@ -706,4 +801,166 @@ function AssignPlanModal({
         </div>
     </Modal>
   );
+}
+
+// ----------------------------------------------------------------------------
+// PasswordResetDialog — admin tool to recover any user's password.
+// ----------------------------------------------------------------------------
+// Two modes the admin picks via a top toggle:
+//   • "email"  : server creates a 30-min /forgot-password token and emails
+//                the user a reset link. Admin never sees the password.
+//   • "direct" : admin types or generates a password. Server hashes + saves
+//                immediately and emails the user a confirmation. The new
+//                password is shown ONCE in a copy-able field so the admin
+//                can share it out-of-band.
+// Both paths gated server-side by isStaffRole + per-actor rate limit and
+// land an audit row via recordAudit.
+function PasswordResetDialog({
+  userId,
+  email,
+  onClose,
+}: {
+  userId: string;
+  email: string;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"email" | "direct">("email");
+  const [pw, setPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [resultPw, setResultPw] = useState<string | null>(null);
+  const sendReset = useAdminSendPasswordReset();
+  const setDirect = useAdminSetUserPassword();
+
+  return (
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      panelClassName="bg-card rounded-2xl p-6 w-full max-w-md shadow-2xl border border-border"
+    >
+      <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
+        <KeyRound className="w-5 h-5 text-primary" /> Reset password
+      </h3>
+      <p className="text-xs text-muted-foreground mb-4 truncate">{email}</p>
+
+      {/* Mode toggle — segmented control style. */}
+      <div className="flex gap-1 p-1 bg-muted/40 rounded-lg mb-4">
+        <button
+          type="button"
+          onClick={() => { setMode("email"); setResultPw(null); }}
+          className={`flex-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${mode === "email" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Send reset email
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("direct")}
+          className={`flex-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${mode === "direct" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Set new password
+        </button>
+      </div>
+
+      {mode === "email" ? (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            We&apos;ll email a 30-minute reset link. The user picks their own password.
+          </p>
+          <Btn
+            className="w-full"
+            isLoading={sendReset.isPending}
+            onClick={() => sendReset.mutate(userId, {
+              onSuccess: (r) => { if (r.success) onClose(); },
+            })}
+          >
+            <Mail className="w-4 h-4 mr-2" /> Send reset link
+          </Btn>
+          <Btn variant="outline" className="w-full" onClick={onClose}>Cancel</Btn>
+        </div>
+      ) : resultPw ? (
+        // Post-set state — show the password once so the admin can copy it
+        // and share it with the user out-of-band.
+        <div className="space-y-3">
+          <div className="rounded-lg bg-warning/10 border border-warning/30 px-3 py-2 text-xs text-warning flex items-start gap-1.5">
+            <ShieldAlert className="w-4 h-4 shrink-0 mt-px" />
+            <span>Copy this password now. We won&apos;t show it again.</span>
+          </div>
+          <div className="flex gap-2">
+            <Input value={resultPw} readOnly className="font-mono text-sm" />
+            <Btn
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(resultPw).then(() => toast.success("Copied"));
+              }}
+            >
+              <Copy className="w-4 h-4" />
+            </Btn>
+          </div>
+          <Btn variant="outline" className="w-full" onClick={onClose}>Close</Btn>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Type or generate a password. The user gets a confirmation email.
+          </p>
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              <Input
+                type={showPw ? "text" : "password"}
+                value={pw}
+                onChange={(e) => setPw(e.target.value)}
+                placeholder="Min 8 chars · upper · digit · symbol"
+                className="font-mono pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                aria-label={showPw ? "Hide password" : "Show password"}
+              >
+                {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <Btn variant="outline" size="sm" onClick={() => setPw(generatePassword())}>
+              <Sparkles className="w-4 h-4 mr-1" /> Generate
+            </Btn>
+          </div>
+          <Btn
+            variant="primary"
+            className="w-full"
+            isLoading={setDirect.isPending}
+            disabled={pw.length < 8}
+            onClick={() => setDirect.mutate(
+              { userId, newPassword: pw },
+              { onSuccess: (r) => { if (r.success) setResultPw(pw); } },
+            )}
+          >
+            <KeyRound className="w-4 h-4 mr-2" /> Set password
+          </Btn>
+          <Btn variant="outline" className="w-full" onClick={onClose}>Cancel</Btn>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// Generates a 16-char password that always satisfies the complexity rule
+// enforced by adminSetUserPassword (≥8 chars + upper + digit + symbol).
+// Skips visually-confusable characters (I/O/l/o/0/1) so an admin reading
+// the password aloud doesn't have a dispute over "was that a 0 or an O?".
+function generatePassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%^&*-_+=?";
+  const pick = (s: string, n: number) =>
+    Array.from({ length: n }, () => s[Math.floor(Math.random() * s.length)]).join("");
+  const chars = (pick(upper, 4) + pick(lower, 4) + pick(digits, 4) + pick(symbols, 4)).split("");
+  // Fisher-Yates shuffle so categories don't always appear in the same order.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
 }

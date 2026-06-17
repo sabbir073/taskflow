@@ -4,6 +4,11 @@ export type UserRole = "super_admin" | "admin" | "moderator" | "group_leader" | 
 export type UserStatus = "active" | "suspended" | "banned";
 export type TaskStatus = "draft" | "pending" | "in_progress" | "submitted" | "approved" | "rejected";
 export type TaskPriority = "low" | "medium" | "high";
+// Bundle category — drives filter chips on the worker grid and shapes the
+// create-form layout (creation mode shows content fields; review/maps mode
+// hides watch-time tier UI, etc.). Backed by tasks.category + CHECK
+// constraint added in migration 051.
+export type TaskCategory = "engagement" | "creation" | "review" | "music" | "maps" | "other";
 export type GroupPrivacy = "public" | "private";
 export type RecurringType = "daily" | "weekly" | "monthly";
 export type ProofType = "url" | "screenshot" | "both" | "none";
@@ -133,6 +138,7 @@ export interface Task {
   // 0 disables the bonus.
   completion_bonus: number;
   approval_status: "approved" | "pending_approval" | "rejected_by_admin";
+  category: TaskCategory;
   priority: TaskPriority;
   deadline: string | null;
   status: TaskStatus;
@@ -383,5 +389,50 @@ export interface AdminAuditLog {
   target_type: "user" | "payment" | "task" | "group" | "plan" | "subscription" | null;
   target_id: string | null;
   metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+// Paid + admin-approved group access (migration 055).
+export type GroupAccessStatus =
+  | "awaiting_quote"
+  | "awaiting_payment"
+  | "pending_review"
+  | "approved"
+  | "rejected";
+
+export interface GroupAccessApplication {
+  id: number;
+  user_id: string;
+  contact_number: string | null;
+  requested_groups: number;
+  requested_members: number;
+  requested_tasks: number;
+  pricing_mode: "auto" | "admin";
+  price: number | null;
+  currency: string;
+  payment_method_id: number | null;
+  transaction_id: string | null;
+  paid_at: string | null;
+  status: GroupAccessStatus;
+  granted_groups: number | null;
+  granted_members: number | null;
+  granted_tasks: number | null;
+  review_notes: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GroupAccessGrant {
+  id: number;
+  user_id: string;
+  max_groups: number;
+  max_members: number;
+  max_tasks: number;
+  application_id: number | null;
+  granted_by: string | null;
+  is_active: boolean;
+  granted_at: string;
   created_at: string;
 }

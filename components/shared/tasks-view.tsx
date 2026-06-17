@@ -3,14 +3,17 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, Input, Select, Btn, Badge } from "@/components/ui";
 import {
-  Search, Clock, CheckCircle, XCircle, Plus, Coins, Trash2, Edit2,
-  ExternalLink, Image as ImageIcon, Wallet, FileText,
+  Search, Clock, CheckCircle, XCircle, Plus, Coins,
+  ExternalLink, Image as ImageIcon, FileText,
 } from "lucide-react";
 import { useTasks, useMyTasks, useApproveTask, useRejectTask, useReviewItemSubmission, usePendingItemReviews, useDeleteTask, useAcceptTask } from "@/hooks/use-tasks";
 import { EmptyState } from "./empty-state";
 import { ConfirmDialog } from "./confirm-dialog";
 import { formatDate, getInitials } from "@/lib/utils";
 import { PLATFORM_CONFIG } from "@/lib/constants/platforms";
+import { PlatformTile } from "@/components/shared/platform-icon";
+import { CATEGORY_LABELS } from "@/lib/constants";
+import { TaskBundleCard } from "./task-bundle-card";
 import Link from "next/link";
 
 // ============================================================================
@@ -39,14 +42,22 @@ const TASK_STATUS_BADGE: Record<string, { variant: "default" | "primary" | "succ
   rejected: { variant: "error", label: "Rejected" },
 };
 
-const APPROVAL_VARIANT: Record<string, "success" | "warning" | "error" | "default"> = {
-  approved: "success",
-  pending_approval: "warning",
-  rejected_by_admin: "error",
-};
+// APPROVAL_VARIANT moved into TaskBundleCard (each tab now delegates the
+// approval badge to the card). Kept here historically for reference.
 
-export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: string }) {
-  const [activeTab, setActiveTab] = useState<"my" | "doable" | "manage" | "review">("doable");
+type TaskTab = "my" | "doable" | "manage" | "review";
+
+// Resolve the starting tab from a URL ?tab= hint (e.g. the /inbox "Tasks
+// awaiting approval" deep-link sends ?tab=manage). Admin-only tabs fall back
+// to "doable" for non-staff so a tampered URL can't reveal the manage view.
+function resolveInitialTab(initialTab: string | undefined, isAdmin: boolean): TaskTab {
+  if (initialTab === "manage" || initialTab === "review") return isAdmin ? initialTab : "doable";
+  if (initialTab === "my" || initialTab === "doable") return initialTab;
+  return "doable";
+}
+
+export function TasksView({ isAdmin, userId, initialTab }: { isAdmin: boolean; userId: string; initialTab?: string }) {
+  const [activeTab, setActiveTab] = useState<TaskTab>(() => resolveInitialTab(initialTab, isAdmin));
 
   const myTasksCount = useTasks({ page: 1, pageSize: 1, created_by: userId });
   const doableCount = useMyTasks({ page: 1, pageSize: 1 });
@@ -68,23 +79,14 @@ export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: strin
 
   return (
     <div className="space-y-4">
-      {/* DESKTOP TABS — original underline style, untouched */}
-      <div className="hidden sm:flex gap-1 border-b border-border/50 pb-px overflow-x-auto">
-        {tabs.map((tab) => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap relative
-              ${activeTab === tab.key ? "text-primary bg-primary/5 border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
-            {tab.label} ({tab.count})
-          </button>
-        ))}
-      </div>
-
-      {/* MOBILE TABS — pill style horizontal scroll, app-feel.
-          Edge-bleeds the container so the scroll boundary isn't visible
-          at the screen edge. Active pill uses the brand gradient + glow
-          so it's unmistakable on small screens. */}
-      <div className="sm:hidden -mx-4 overflow-x-auto scrollbar-none">
-        <div className="flex gap-2 px-4 min-w-max">
+      {/* UNIFIED PILL TABS — one render block across mobile / tablet /
+          laptop / desktop (Entry #30). Mobile gets short labels + edge-
+          bleed scroll (`-mx-4 sm:mx-0`, `px-4 sm:px-0`); tablet+ gets the
+          full labels and stays within the page padding. Active pill uses
+          the brand gradient + glow so it's unmistakable; inactive pills
+          have a hover state for desktop mice. */}
+      <div className="-mx-4 sm:mx-0 overflow-x-auto scrollbar-none">
+        <div className="flex gap-2 px-4 sm:px-0 min-w-max">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key;
             return (
@@ -94,10 +96,11 @@ export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: strin
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all
                   ${isActive
                     ? "bg-gradient-to-r from-primary to-accent text-white shadow-md shadow-primary/25"
-                    : "bg-muted/50 text-muted-foreground hover:bg-muted active:scale-95"}`}
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95"}`}
               >
-                <span>{tab.short}</span>
-                <span className={`min-w-[20px] px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none
+                <span className="hidden sm:inline">{tab.label}</span>
+                <span className="sm:hidden">{tab.short}</span>
+                <span className={`min-w-[20px] px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none tabular-nums
                   ${isActive ? "bg-white/25 text-white" : "bg-background text-foreground"}`}>
                   {tab.count}
                 </span>
@@ -120,15 +123,17 @@ export function TasksView({ isAdmin, userId }: { isAdmin: boolean; userId: strin
 // ============================================================================
 function MyTasksTab({ userId }: { userId: string }) {
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
-  const { data, isLoading } = useTasks({ page, pageSize: 20, search, created_by: userId });
+  const { data, isLoading } = useTasks({ page, pageSize: 20, search, created_by: userId, category: category || undefined });
   const removeTask = useDeleteTask();
   const items = data?.data || [];
   const totalPages = data?.totalPages || 1;
 
   return (
     <div className="space-y-4">
+      <CategoryChips value={category} onChange={(v) => { setCategory(v); setPage(1); }} />
       <div className="relative max-w-md">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input placeholder="Search my tasks..." className="pl-11" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
@@ -136,128 +141,15 @@ function MyTasksTab({ userId }: { userId: string }) {
       {isLoading ? <LoadingSkeleton /> : items.length === 0 ? (
         <EmptyState icon={Plus} title="No tasks created yet" description="Create your first task to get started" action={{ label: "Create Task", href: "/tasks/create" }} />
       ) : (
-        <div className="space-y-3">
-          {items.map((item) => {
-            const taskId = item.id as number;
-            const title = String(item.title || "");
-            const platform = item.platforms as Record<string, unknown> | undefined;
-            const taskType = item.task_types as Record<string, unknown> | undefined;
-            const points = Number(item.points_per_completion || 0);
-            const budget = Number(item.point_budget || 0);
-            const spent = Number(item.points_spent || 0);
-            const status = String(item.status || "draft");
-            const approval = String(item.approval_status || "approved");
-            const slug = String(platform?.slug || "");
-            const config = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
-            const statusBadge = TASK_STATUS_BADGE[status] || { variant: "default" as const, label: status };
-            const budgetPct = budget > 0 ? Math.min(100, Math.round((spent / budget) * 100)) : 0;
-            const platformColor = config?.color || "#666";
-            const platformName = String(platform?.name || "");
-            const typeName = String(taskType?.name || "");
-
-            return (
-              <Card key={taskId} className="overflow-hidden">
-                {/* DESKTOP — unchanged from the original */}
-                <div className="hidden sm:block">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: platformColor }}>
-                          {platformName.charAt(0) || "?"}
-                        </div>
-                        <div className="min-w-0">
-                          <Link href={`/tasks/${taskId}`} className="font-semibold text-sm hover:text-primary transition-colors">{title}</Link>
-                          <p className="text-xs text-muted-foreground">
-                            {platformName} &middot; {typeName} &middot;
-                            <span className="text-primary font-medium"> {points.toFixed(2)} pts/task</span> &middot;
-                            Budget: {spent.toFixed(2)}/{budget.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        {approval !== "approved" && <Badge variant={APPROVAL_VARIANT[approval] || "default"}>{approval.replace(/_/g, " ")}</Badge>}
-                        <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-
-                        <Link href={`/tasks/${taskId}/edit`}>
-                          <Btn variant="outline" size="sm">Edit</Btn>
-                        </Link>
-                        <Btn variant="ghost" size="sm" className="text-error" onClick={() => setDeleteTarget({ id: taskId, title })} disabled={removeTask.isPending}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Btn>
-                      </div>
-                    </div>
-                  </CardContent>
-                </div>
-
-                {/* MOBILE — app-style stacked card with every data point */}
-                <div className="sm:hidden">
-                  {/* Top: platform tile + status pill */}
-                  <div className="flex items-start justify-between gap-3 px-4 pt-4">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm" style={{ backgroundColor: platformColor }}>
-                        {platformName.charAt(0) || "?"}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{platformName}</p>
-                        <p className="text-xs text-muted-foreground/80 truncate">{typeName}</p>
-                      </div>
-                    </div>
-                    <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-                  </div>
-
-                  {/* Title */}
-                  <Link href={`/tasks/${taskId}`} className="block px-4 mt-3">
-                    <h3 className="text-base font-bold leading-tight active:text-primary transition-colors">{title}</h3>
-                  </Link>
-
-                  {/* Stats grid: points + budget */}
-                  <div className="px-4 mt-3 grid grid-cols-2 gap-2">
-                    <div className="rounded-xl bg-primary/5 border border-primary/10 p-3">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                        <Coins className="w-3 h-3" /> Per task
-                      </div>
-                      <p className="mt-1 text-base font-bold text-foreground">{points.toFixed(2)}<span className="text-xs font-normal text-muted-foreground"> pts</span></p>
-                    </div>
-                    <div className="rounded-xl bg-muted/40 border border-border/40 p-3">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        <Wallet className="w-3 h-3" /> Budget
-                      </div>
-                      <p className="mt-1 text-base font-bold text-foreground">{spent.toFixed(0)}<span className="text-xs font-normal text-muted-foreground">/{budget.toFixed(0)}</span></p>
-                      {budget > 0 && (
-                        <div className="mt-1.5 h-1 rounded-full bg-background overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${budgetPct}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Approval row — only when not approved */}
-                  {approval !== "approved" && (
-                    <div className="px-4 mt-3">
-                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium
-                        ${approval === "pending_approval" ? "bg-warning/10 text-warning" : approval === "rejected_by_admin" ? "bg-error/10 text-error" : "bg-muted text-muted-foreground"}`}>
-                        <Clock className="w-3.5 h-3.5 shrink-0" />
-                        <span className="capitalize">{approval.replace(/_/g, " ")}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Footer actions */}
-                  <div className="mt-4 flex items-center gap-2 px-4 py-3 border-t border-border/50 bg-muted/20">
-                    <Link href={`/tasks/${taskId}/edit`} className="flex-1">
-                      <Btn variant="outline" size="sm" className="w-full">
-                        <Edit2 className="w-3.5 h-3.5 mr-1.5" /> Edit
-                      </Btn>
-                    </Link>
-                    <Btn variant="outline" size="sm" className="text-error border-error/30 hover:bg-error/10" onClick={() => setDeleteTarget({ id: taskId, title })} disabled={removeTask.isPending}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Btn>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((item) => (
+            <TaskBundleCard
+              key={item.id as number}
+              task={item}
+              mode="creator"
+              onDelete={(id: number, title: string) => setDeleteTarget({ id, title })}
+            />
+          ))}
         </div>
       )}
       <Pagination page={page} totalPages={totalPages} setPage={setPage} />
@@ -278,17 +170,57 @@ function MyTasksTab({ userId }: { userId: string }) {
 // ============================================================================
 // Tab 2: Tasks assigned to me
 // ============================================================================
+// Category filter chips for the doable / manage tabs. Mirrors the
+// `tasks.category` enum added in migration 051 (engagement / creation /
+// review / music / maps / other) plus an "All" pseudo-value.
+const CATEGORY_CHIPS: { value: string; label: string }[] = [
+  { value: "",           label: "All" },
+  { value: "engagement", label: "Engagement" },
+  { value: "creation",   label: "Creation" },
+  { value: "review",     label: "Reviews" },
+  { value: "music",      label: "Music" },
+  { value: "maps",       label: "Maps" },
+  { value: "other",      label: "Other" },
+];
+
+function CategoryChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="-mx-4 sm:mx-0 overflow-x-auto scrollbar-none">
+      <div className="flex gap-1.5 px-4 sm:px-0 min-w-max">
+        {CATEGORY_CHIPS.map((c) => {
+          const active = value === c.value;
+          return (
+            <button
+              key={c.value || "all"}
+              type="button"
+              onClick={() => onChange(c.value)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all
+                ${active
+                  ? "bg-gradient-to-r from-primary to-accent text-white shadow shadow-primary/25"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted active:scale-95"}`}
+            >
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DoableTasksTab() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useMyTasks({ page, pageSize: 20, search, status: statusFilter || undefined });
+  const { data, isLoading } = useMyTasks({ page, pageSize: 20, search, status: statusFilter || undefined, category: category || undefined });
   const acceptTask = useAcceptTask();
   const items = data?.data || [];
   const totalPages = data?.totalPages || 1;
 
   return (
     <div className="space-y-4">
+      <CategoryChips value={category} onChange={(v) => { setCategory(v); setPage(1); }} />
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -302,15 +234,22 @@ function DoableTasksTab() {
       {isLoading ? <LoadingSkeleton /> : items.length === 0 ? (
         <EmptyState icon={Clock} title="No doable tasks" description="No tasks have been assigned to you yet" />
       ) : (
-        <div className="space-y-3">
-          {items.map((item) => (
-            <DoableTaskRow
-              key={item.id as number}
-              item={item}
-              onAccept={(assignmentId) => acceptTask.mutate(assignmentId)}
-              acceptPending={acceptTask.isPending}
-            />
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((item) => {
+            const taskRow = (item.tasks as Record<string, unknown>) || item;
+            return (
+              <TaskBundleCard
+                key={item.id as number}
+                task={taskRow}
+                assignmentId={item.id as number}
+                assignmentStatus={String(item.status || "")}
+                pointsAwarded={item.points_awarded as number | null | undefined}
+                mode="doable"
+                onAccept={(id: number) => acceptTask.mutate(id)}
+                acceptPending={acceptTask.isPending}
+              />
+            );
+          })}
         </div>
       )}
       <Pagination page={page} totalPages={totalPages} setPage={setPage} />
@@ -342,6 +281,8 @@ function DoableTaskRow({
   const badge = ASSIGNMENT_BADGE[status] || { variant: "default" as const, label: status };
   const platformColor = config?.color || "#666";
   const platformName = String(platform?.name || "");
+  const category = String(task.category || "engagement") as keyof typeof CATEGORY_LABELS;
+  const categoryLabel = CATEGORY_LABELS[category] || "Engagement";
   const typeName = String(taskType?.name || "");
   const earned = Number(item.points_awarded || 0);
 
@@ -352,9 +293,7 @@ function DoableTaskRow({
         <CardContent className="p-4">
           <div className="flex items-center justify-between gap-3">
             <Link href={`/tasks/${taskId}`} className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-80 transition-opacity">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: platformColor }}>
-                {platformName.charAt(0) || "?"}
-              </div>
+              <PlatformTile slug={slug} name={platformName} color={platformColor} className="w-10 h-10 rounded-xl" iconClassName="w-5 h-5" />
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate hover:text-primary transition-colors">{title}</p>
                 <p className="text-xs text-muted-foreground">{platformName} &middot; {typeName} &middot; <span className="text-primary font-medium">{points.toFixed(2)} pts</span></p>
@@ -362,6 +301,7 @@ function DoableTaskRow({
             </Link>
 
             <div className="flex items-center gap-2 shrink-0">
+              <Badge variant="default">{categoryLabel}</Badge>
               <Badge variant={badge.variant}>{badge.label}</Badge>
 
               {status === "pending" && (
@@ -388,15 +328,16 @@ function DoableTaskRow({
       <div className="sm:hidden">
         <div className="flex items-start justify-between gap-3 px-4 pt-4">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm" style={{ backgroundColor: platformColor }}>
-              {platformName.charAt(0) || "?"}
-            </div>
+            <PlatformTile slug={slug} name={platformName} color={platformColor} className="w-11 h-11 rounded-2xl shadow-sm" iconClassName="w-5 h-5" letterClassName="text-lg" />
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{platformName}</p>
               <p className="text-xs text-muted-foreground/80 truncate">{typeName}</p>
             </div>
           </div>
-          <Badge variant={badge.variant}>{badge.label}</Badge>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <Badge variant={badge.variant}>{badge.label}</Badge>
+            <Badge variant="default">{categoryLabel}</Badge>
+          </div>
         </div>
 
         <Link href={`/tasks/${taskId}`} className="block px-4 mt-3">
@@ -483,12 +424,14 @@ export function DoableTasksPreview({ limit = 5 }: { limit?: number }) {
 function ManageTasksTab() {
   const [search, setSearch] = useState("");
   const [approvalFilter, setApprovalFilter] = useState("");
+  const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
-  const [rejectingId, setRejectingId] = useState<number | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
+  // rejectingId / rejectReason state moved INTO TaskBundleCard (each card
+  // owns its own inline reject input now), so we only keep the delete-modal
+  // target here.
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null);
 
-  const { data, isLoading } = useTasks({ page, pageSize: 20, search, approval_status: approvalFilter || undefined });
+  const { data, isLoading } = useTasks({ page, pageSize: 20, search, approval_status: approvalFilter || undefined, category: category || undefined });
   const approve = useApproveTask();
   const reject = useRejectTask();
   const remove = useDeleteTask();
@@ -497,6 +440,7 @@ function ManageTasksTab() {
 
   return (
     <div className="space-y-4">
+      <CategoryChips value={category} onChange={(v) => { setCategory(v); setPage(1); }} />
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -509,121 +453,18 @@ function ManageTasksTab() {
       {isLoading ? <LoadingSkeleton /> : items.length === 0 ? (
         <EmptyState icon={CheckCircle} title="No tasks" description="No tasks match filters" />
       ) : (
-        <div className="space-y-3">
-          {items.map((item) => {
-            const taskId = item.id as number;
-            const title = String(item.title || "");
-            const platform = item.platforms as Record<string, unknown> | undefined;
-            const creator = item.users as Record<string, unknown> | undefined;
-            const slug = String(platform?.slug || "");
-            const config = PLATFORM_CONFIG[slug as keyof typeof PLATFORM_CONFIG];
-            const budget = Number(item.point_budget || 0);
-            const approval = String(item.approval_status || "approved");
-            const isPending = approval === "pending_approval";
-            const isRejecting = rejectingId === taskId;
-            const platformColor = config?.color || "#666";
-            const platformName = String(platform?.name || "");
-            const creatorName = String(creator?.name || "Unknown");
-
-            return (
-              <Card key={taskId} className="overflow-hidden">
-                {/* DESKTOP — original */}
-                <div className="hidden sm:block">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: platformColor }}>
-                          {platformName.charAt(0) || "?"}
-                        </div>
-                        <div className="min-w-0">
-                          <Link href={`/tasks/${taskId}`} className="font-semibold text-sm hover:text-primary">{title}</Link>
-                          <p className="text-xs text-muted-foreground">by {creatorName} &middot; <Coins className="w-3 h-3 inline text-warning" /> {budget.toFixed(2)}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant={APPROVAL_VARIANT[approval] || "default"}>{approval.replace(/_/g, " ")}</Badge>
-                        {isPending && (
-                          <>
-                            <Btn size="sm" onClick={() => approve.mutate(taskId)}><CheckCircle className="w-3.5 h-3.5" /></Btn>
-                            {isRejecting ? (
-                              <div className="flex gap-1">
-                                <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason..." className="h-9 w-32 text-xs" />
-                                <Btn variant="danger" size="sm" onClick={() => { reject.mutate({ taskId, reason: rejectReason }); setRejectingId(null); setRejectReason(""); }}>OK</Btn>
-                              </div>
-                            ) : (
-                              <Btn variant="outline" size="sm" onClick={() => setRejectingId(taskId)}><XCircle className="w-3.5 h-3.5" /></Btn>
-                            )}
-                          </>
-                        )}
-                        <Btn variant="ghost" size="sm" className="text-error" onClick={() => setDeleteTarget({ id: taskId, title })}><Trash2 className="w-3.5 h-3.5" /></Btn>
-                      </div>
-                    </div>
-                  </CardContent>
-                </div>
-
-                {/* MOBILE */}
-                <div className="sm:hidden">
-                  <div className="flex items-start justify-between gap-3 px-4 pt-4">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm" style={{ backgroundColor: platformColor }}>
-                        {platformName.charAt(0) || "?"}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{platformName}</p>
-                        <p className="text-xs text-muted-foreground/80 truncate">by {creatorName}</p>
-                      </div>
-                    </div>
-                    <Badge variant={APPROVAL_VARIANT[approval] || "default"}>{approval.replace(/_/g, " ")}</Badge>
-                  </div>
-
-                  <Link href={`/tasks/${taskId}`} className="block px-4 mt-3">
-                    <h3 className="text-base font-bold leading-tight active:text-primary transition-colors">{title}</h3>
-                  </Link>
-
-                  <div className="px-4 mt-3">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-warning/10 text-warning text-xs font-semibold">
-                      <Coins className="w-3 h-3" /> {budget.toFixed(2)} pts budget
-                    </div>
-                  </div>
-
-                  <div className="mt-4 px-4 py-3 border-t border-border/50 bg-muted/20">
-                    {isRejecting ? (
-                      <div className="flex flex-col gap-2">
-                        <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Rejection reason..." className="h-9 text-xs" autoFocus />
-                        <div className="flex gap-2">
-                          <Btn variant="danger" size="sm" disabled={!rejectReason.trim()} className="flex-1"
-                            onClick={() => { reject.mutate({ taskId, reason: rejectReason }); setRejectingId(null); setRejectReason(""); }}>
-                            Reject
-                          </Btn>
-                          <Btn variant="ghost" size="sm" onClick={() => { setRejectingId(null); setRejectReason(""); }}>Cancel</Btn>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        {isPending ? (
-                          <>
-                            <Btn size="sm" className="flex-1" onClick={() => approve.mutate(taskId)}>
-                              <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
-                            </Btn>
-                            <Btn variant="outline" size="sm" className="flex-1" onClick={() => setRejectingId(taskId)}>
-                              <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
-                            </Btn>
-                          </>
-                        ) : (
-                          <Link href={`/tasks/${taskId}`} className="flex-1">
-                            <Btn variant="outline" size="sm" className="w-full">View Task</Btn>
-                          </Link>
-                        )}
-                        <Btn variant="outline" size="sm" className="text-error border-error/30 hover:bg-error/10" onClick={() => setDeleteTarget({ id: taskId, title })}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Btn>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((item) => (
+            <TaskBundleCard
+              key={item.id as number}
+              task={item}
+              mode="admin"
+              onApprove={(id: number) => approve.mutate(id)}
+              onReject={(id: number, reason: string) => reject.mutate({ taskId: id, reason })}
+              rejectPending={reject.isPending}
+              onDelete={(id: number, title: string) => setDeleteTarget({ id, title })}
+            />
+          ))}
         </div>
       )}
       <Pagination page={page} totalPages={totalPages} setPage={setPage} />
@@ -696,7 +537,13 @@ function ReviewTab() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">{getInitials(name)}</div>
-                        <div><p className="text-sm font-semibold">{name}</p><p className="text-xs text-muted-foreground">{email}</p></div>
+                        <div>
+                          <p className="text-sm font-semibold flex items-center gap-2">
+                            {name}
+                            <span className="font-mono text-[10px] text-muted-foreground font-normal">#{itemSubmissionId}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">{email}</p>
+                        </div>
                       </div>
                       <div className="text-right">
                         <Link href={`/tasks/${taskId}`} className="text-sm font-medium hover:text-primary transition-colors">{taskTitle}</Link>
@@ -852,9 +699,7 @@ function _TaskGrid({ items, isAssignmentView, isCreatorView }: { items: Record<s
               <CardContent className="p-5 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: config?.color || "#666" }}>
-                      {String(platform?.name || "?").charAt(0)}
-                    </div>
+                    <PlatformTile slug={slug} name={String(platform?.name || "")} color={config?.color} className="w-7 h-7 rounded-lg" iconClassName="w-4 h-4" letterClassName="text-xs" />
                     <span className="text-xs text-muted-foreground">{String(taskType?.name || "Task")}</span>
                   </div>
                   <div className="flex gap-1">

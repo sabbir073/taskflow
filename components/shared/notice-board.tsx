@@ -3,12 +3,25 @@
 import { useState, useEffect, useRef, useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Btn, Modal } from "@/components/ui";
-import { Volume2, X, ChevronLeft, ChevronRight, Clock } from "lucide-react";
+import { Megaphone, X, ChevronLeft, ChevronRight, Clock, ArrowRight } from "lucide-react";
 import { useActiveNotices } from "@/hooks/use-notices";
 import { useAppSettings } from "@/components/providers/settings-provider";
 import { getSettingsMap } from "@/lib/actions/settings";
 import { formatRelativeTime } from "@/lib/utils";
 import { RichTextContent } from "./rich-text-content";
+
+// Strip HTML tags + collapse whitespace for the 1-line body preview (notice
+// bodies can be rich HTML; the full modal renders the real markup).
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// "NEW" badge for notices published within the last 48h.
+function isRecent(createdAt: unknown): boolean {
+  if (!createdAt) return false;
+  const t = new Date(String(createdAt)).getTime();
+  return Number.isFinite(t) && Date.now() - t < 48 * 60 * 60 * 1000;
+}
 
 function useNoticeBoardEnabled(fallback: boolean): boolean {
   const { data } = useQuery({
@@ -34,7 +47,6 @@ export function NoticeBoard() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [openNotice, setOpenNotice] = useState<Record<string, unknown> | null>(null);
   const [paused, setPaused] = useState(false);
-  const [slideDir, setSlideDir] = useState<"up" | "down">("up");
   const [animating, setAnimating] = useState(false);
 
   const items = notices || [];
@@ -61,7 +73,7 @@ export function NoticeBoard() {
     if (items.length <= 1 || paused) return;
     const timer = setInterval(() => {
       const next = (activeIdxRef.current + 1) % items.length;
-      slideTo(next, "up");
+      slideTo(next);
     }, 5000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,9 +82,8 @@ export function NoticeBoard() {
   if (!enabled) return null;
   if (isLoading || items.length === 0) return null;
 
-  function slideTo(idx: number, dir: "up" | "down") {
+  function slideTo(idx: number) {
     if (animating || idx === activeIdx) return;
-    setSlideDir(dir);
     setAnimating(true);
     const t1 = setTimeout(() => {
       setActiveIdx(idx);
@@ -86,70 +97,84 @@ export function NoticeBoard() {
 
   return (
     <>
-      {/* ---- Marquee-style ticker ---- */}
+      {/* ---- Spotlight announcement card ---- */}
       <div
-        className="mb-6 rounded-xl overflow-hidden bg-gradient-to-r from-primary/10 via-primary/5 to-accent/10 border border-primary/20 shadow-sm"
+        className="group mb-6 rounded-2xl overflow-hidden border border-primary/20 ring-1 ring-primary/10 bg-linear-to-br from-primary/10 via-card to-accent/10 shadow-lg shadow-primary/10"
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
       >
-        <div className="flex items-stretch">
-          {/* Left accent strip with icon */}
-          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-primary to-accent shrink-0">
-            <Volume2 className="w-4 h-4 text-white" />
-            <span className="text-[11px] font-bold uppercase tracking-widest text-white/90 hidden sm:block">
-              Notice
-            </span>
-          </div>
-
-          {/* Ticker content */}
-          <div className="flex-1 flex items-center px-4 py-3 min-w-0 overflow-hidden">
-            <div className="flex-1 min-w-0 relative h-5">
-              {items.map((n, i) => {
-                const isActive = i === activeIdx;
-                const title = String(n.title || "");
-                return (
-                  <button
-                    key={n.id as number}
-                    type="button"
-                    onClick={() => setOpenNotice(n)}
-                    className={`absolute inset-0 text-left text-sm font-medium truncate text-foreground transition-all duration-300 ease-out cursor-pointer hover:text-primary
-                      ${isActive && !animating ? "opacity-100 translate-y-0" : ""}
-                      ${isActive && animating ? (slideDir === "up" ? "opacity-0 -translate-y-full" : "opacity-0 translate-y-full") : ""}
-                      ${!isActive && !animating ? "opacity-0 translate-y-full" : ""}
-                      ${!isActive && animating ? "opacity-0" : ""}
-                    `}
-                  >
-                    {title}
-                  </button>
-                );
-              })}
+        <div className="p-4 sm:p-5">
+          {/* Header: pulsing megaphone + eyebrow + NEW + counter/nav */}
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative shrink-0">
+                <span className="absolute inset-0 rounded-xl bg-primary/40 animate-ping opacity-60" />
+                <div className="relative w-9 h-9 rounded-xl bg-linear-to-br from-primary to-accent flex items-center justify-center shadow-md shadow-primary/30">
+                  <Megaphone className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-primary">Announcements</span>
+                {isRecent(current?.created_at) && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/15 text-accent text-[9px] font-extrabold uppercase tracking-wider animate-pulse">
+                    <span className="w-1 h-1 rounded-full bg-accent" /> New
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Right side: counter + nav */}
-          <div className="flex items-center gap-1 px-3 shrink-0">
             {items.length > 1 && (
-              <>
-                <span className="text-[10px] text-muted-foreground font-mono mr-1">
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[10px] text-muted-foreground font-mono tabular-nums mr-1">
                   {String(activeIdx + 1).padStart(2, "0")}/{String(items.length).padStart(2, "0")}
                 </span>
-                <button type="button" onClick={() => slideTo((activeIdx - 1 + items.length) % items.length, "down")}
-                  className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                <button type="button" aria-label="Previous notice" onClick={() => slideTo((activeIdx - 1 + items.length) % items.length)}
+                  className="p-1 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
-                <button type="button" onClick={() => slideTo((activeIdx + 1) % items.length, "up")}
-                  className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
-                  <ChevronRight className="w-3.5 h-3.5" />
+                <button type="button" aria-label="Next notice" onClick={() => slideTo((activeIdx + 1) % items.length)}
+                  className="p-1 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
+                  <ChevronRight className="w-4 h-4" />
                 </button>
-              </>
+              </div>
             )}
+          </div>
+
+          {/* Body: title + 1-line preview (crossfade on rotate) */}
+          <button
+            type="button"
+            onClick={() => setOpenNotice(current)}
+            className={`block w-full text-left transition-opacity duration-300 ${animating ? "opacity-0" : "opacity-100"}`}
+          >
+            <p className="text-base sm:text-lg font-bold leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors">
+              {String(current?.title || "")}
+            </p>
+            {!!stripHtml(String(current?.body || "")) && (
+              <p className="mt-1 text-sm text-muted-foreground line-clamp-1">
+                {stripHtml(String(current?.body || ""))}
+              </p>
+            )}
+          </button>
+
+          {/* Footer: CTA + dot indicators */}
+          <div className="flex items-center justify-between gap-3 mt-3">
             <button
               type="button"
               onClick={() => setOpenNotice(current)}
-              className="ml-1 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:gap-1.5 transition-all"
             >
-              View
+              Read full notice <ArrowRight className="w-3.5 h-3.5" />
             </button>
+            {items.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                {items.map((n, i) => (
+                  <button key={n.id as number} type="button" aria-label={`Go to notice ${i + 1}`}
+                    onClick={() => slideTo(i)}
+                    className={`rounded-full transition-all duration-300 ${i === activeIdx ? "w-5 h-1.5 bg-linear-to-r from-primary to-accent" : "w-1.5 h-1.5 bg-foreground/20 hover:bg-foreground/40"}`}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -158,7 +183,7 @@ export function NoticeBoard() {
           <div className="h-0.5 bg-primary/10">
             <div
               key={activeIdx}
-              className="h-full bg-gradient-to-r from-primary to-accent"
+              className="h-full bg-linear-to-r from-primary to-accent"
               style={{ animation: "progress 5s linear forwards" }}
             />
           </div>
@@ -177,12 +202,12 @@ export function NoticeBoard() {
           <>
             {/* Header */}
             <div className="bg-[#1a1a2e] dark:bg-[#0f0f1a] text-white p-6 relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/30 via-transparent to-accent/20" />
+              <div className="absolute inset-0 bg-linear-to-br from-primary/30 via-transparent to-accent/20" />
               <div className="relative flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow">
-                      <Volume2 className="w-4 h-4 text-white" />
+                    <div className="w-8 h-8 rounded-lg bg-linear-to-br from-primary to-accent flex items-center justify-center shadow">
+                      <Megaphone className="w-4 h-4 text-white" />
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">Announcement</span>
                   </div>

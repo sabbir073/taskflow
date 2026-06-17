@@ -87,6 +87,10 @@ export interface TaskFormData {
   // the items array on submit.
   points_per_completion: number;
   priority: import("./database").TaskPriority;
+  // Bundle category — drives admin form layout (creation mode shows content
+  // fields; music/maps hide watch-time tiers) and worker grid filter chips.
+  // Optional on the form: omit → server defaults to 'engagement'.
+  category?: import("./database").TaskCategory;
   deadline: string | null;
   status: "draft" | "pending";
   target_type: import("./database").AssignmentTarget;

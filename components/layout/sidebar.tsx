@@ -8,11 +8,12 @@ import { useAppSettings } from "@/components/providers/settings-provider";
 import {
   LayoutDashboard, ListTodo, Users, UserCog, BarChart3,
   Bell, Settings, Globe, LogOut, ChevronLeft, ChevronRight, Trophy,
-  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History, Mail,
+  CreditCard, Megaphone, ShieldAlert, Wallet, MessageCircle, Image as ImageIcon, Send, History, Mail, Inbox, Crown,
 } from "lucide-react";
 import { useMyTicketAccess } from "@/hooks/use-tickets";
+import { useAdminInboxCounts } from "@/hooks/use-inbox";
 import { cn, getInitials } from "@/lib/utils";
-import { hasPermission, type Permission } from "@/lib/constants/roles";
+import { hasPermission, isStaffRole, type Permission } from "@/lib/constants/roles";
 import { Logo } from "@/components/shared/logo";
 import type { SessionUser } from "@/types";
 import type { UserRole } from "@/types/database";
@@ -26,6 +27,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Inbox", href: "/inbox", icon: Inbox, permission: "manage_users" },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Groups", href: "/groups", icon: Users },
   { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
@@ -35,6 +37,7 @@ const navItems: NavItem[] = [
   { label: "Contact Messages", href: "/contact-messages", icon: Mail, permission: "manage_users" },
   { label: "Notices", href: "/notices", icon: Megaphone, permission: "manage_notices" },
   { label: "Appeals", href: "/appeals", icon: ShieldAlert, permission: "manage_appeals" },
+  { label: "Group Applications", href: "/group-applications", icon: Crown, permission: "manage_group_applications" },
   { label: "Payments", href: "/payments", icon: Wallet, permission: "manage_payments" },
   { label: "Popups", href: "/popups", icon: ImageIcon, permission: "manage_popups" },
   { label: "Reports", href: "/reports", icon: BarChart3, permission: "view_all_reports" },
@@ -52,6 +55,11 @@ export function Sidebar({ user }: { user: SessionUser }) {
   const appSettings = useAppSettings();
   const subscriptionRequired = appSettings.require_subscription === true;
   const { data: ticketAccess } = useMyTicketAccess();
+  // Inbox count badge — only fetched when the user is staff. The hook
+  // itself is staff-gated server-side too, so non-staff just see no badge.
+  const isStaff = isStaffRole(user.role);
+  const { data: inboxCounts } = useAdminInboxCounts();
+  const inboxBadge = isStaff ? (inboxCounts?.totalPending ?? 0) : 0;
   const visibleItems = navItems.filter((item) => {
     if (item.href === "/plans" && !subscriptionRequired) return false;
     if (item.href === "/support" && ticketAccess?.access === "none") return false;
@@ -83,20 +91,31 @@ export function Sidebar({ user }: { user: SessionUser }) {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
 
+          // Live count for the Inbox row — only the Inbox item gets this
+          // treatment to avoid a generic counts-prop creeping into NavItem.
+          const showInboxBadge = item.href === "/inbox" && inboxBadge > 0;
           return (
             <Link
               key={item.href}
               href={item.href}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? `${item.label}${showInboxBadge ? ` (${inboxBadge})` : ""}` : undefined}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors relative",
                 isActive
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
               <Icon className="w-5 h-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span className="flex-1">{item.label}</span>}
+              {showInboxBadge && !collapsed && (
+                <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold leading-none">
+                  {inboxBadge > 99 ? "99+" : inboxBadge}
+                </span>
+              )}
+              {showInboxBadge && collapsed && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary" aria-hidden="true" />
+              )}
             </Link>
           );
         })}

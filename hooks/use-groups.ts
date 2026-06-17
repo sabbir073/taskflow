@@ -19,6 +19,9 @@ function invalidateGroups(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["group-tasks"] });
   qc.invalidateQueries({ queryKey: ["notifications"] });
   qc.invalidateQueries({ queryKey: ["unread-count"] });
+  // Group approve/reject clears the /inbox "Groups awaiting approval" queue.
+  qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+  qc.invalidateQueries({ queryKey: ["admin-inbox-counts"] });
 }
 
 export function useMyGroups(params?: PaginationParams) {

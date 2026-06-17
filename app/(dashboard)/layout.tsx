@@ -10,7 +10,7 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { SettingsProvider } from "@/components/providers/settings-provider";
 import { StatusWatcher } from "@/components/shared/status-watcher";
 import { PopupDisplay } from "@/components/shared/popup-display";
-import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
+import { isStaffRole } from "@/lib/constants/roles";
 
 // Authenticated app — keep crawlers out. Even though proxy.ts redirects
 // unauthenticated visitors to /login, an explicit noindex prevents any
@@ -42,33 +42,30 @@ export default async function DashboardLayout({
 }) {
   const user = await requireAuth();
 
-  // Read FRESH status + role from DB each request — JWT is cached 24h so
-  // a mid-session suspension or role demotion would otherwise not take
-  // effect until re-login.
+  // Suspended-user redirect. The JWT callback now re-reads status from the
+  // DB on every auth() call (Entry #33), so `user.status` is already fresh.
+  // We do one more DB read here as belt-and-braces against a JWT-callback
+  // failure that left a stale "active" status on the cookie — losing the
+  // ability to lock a suspended user out would be a serious security gap.
   const db = getServerClient();
   const { data: profile } = await db
     .from("profiles")
-    .select("status, role")
+    .select("status")
     .eq("user_id", user.id)
     .single();
   const profileRow = profile as Record<string, unknown> | null;
   const currentStatus = profileRow ? String(profileRow.status || "active") : "active";
-  const currentRole = profileRow ? String(profileRow.role || "user") : "user";
 
   if (currentStatus === "suspended") {
     redirect("/suspended");
   }
 
-  // Demoted-staff compensator: if the JWT still carries a privileged role
-  // (super_admin/admin/moderator) but the DB no longer does, force a sign-out
-  // so the next session is minted with the correct (lower) role. Sideways
-  // changes between privileged tiers also force re-auth as a safety net.
-  const privileged = STAFF_ROLES as readonly string[];
-  const wasPrivileged = privileged.includes(user.role);
-  const isPrivileged = privileged.includes(currentRole);
-  if ((wasPrivileged && !isPrivileged) || (wasPrivileged && currentRole !== user.role)) {
-    redirect("/api/auth/signout?callbackUrl=/login");
-  }
+  // Note: the previous "demoted-staff compensator" that force-signed-out
+  // users with a stale privileged JWT is removed in Entry #33. The JWT
+  // callback in auth.ts now refreshes role on every request, so JWT.role
+  // and DB role always match — promotion + demotion + lateral role
+  // changes all take effect on the target user's next page load without
+  // a re-login.
 
   // Dispatch lifecycle notifications (expiring soon / expired) — idempotent
   await dispatchSubscriptionNotifications(db, user.id);

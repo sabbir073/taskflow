@@ -117,7 +117,8 @@ export async function createTicket(formData: z.infer<typeof createTicketSchema>)
         type: "system",
         title: `New Support Ticket [${priority.toUpperCase()}]`,
         message: `${userName} submitted: "${validated.subject}"`,
-        link: `/support/${(ticket as Record<string, unknown>).id}`,
+        // Admin lands on /inbox (Open support tickets section).
+        link: `/inbox`,
         data: { ticket_id: (ticket as Record<string, unknown>).id },
       }));
       await db.from("notifications").insert(notifs as never[]);

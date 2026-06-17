@@ -4,9 +4,51 @@ import { z } from "zod";
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
+import { resolveGroupAccess } from "@/lib/actions/group-access";
 import { recordAudit } from "@/lib/audit";
 import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
+import { actionPriority } from "@/lib/constants/action-priority";
 import type { ApiResponse, PaginatedResponse, PaginationParams } from "@/types";
+
+// Re-orders the admin's bundle items into the natural worker flow
+// (watch → like → save → comment → share → follow → review → create →
+// keep alive) before they're persisted with sort_order = idx. The admin
+// picks freely in any order; the server is the single authority on the
+// canonical ordering, which keeps the sequential gate (Entry #16) and
+// every consumer of `task_bundle_items.sort_order` in lockstep.
+//
+// `items` is the validated schema array (task_type_id only, no slug), so
+// we batch-fetch the matching task_types.slug values once and rank by
+// `actionPriority(slug)`. Stable tie-break by the admin's original index
+// so peer-tier picks keep their relative order. Unknown slugs default to
+// the middle of the pack via actionPriority's fallback tier.
+async function sortBundleItemsByNaturalFlow<T extends { task_type_id: number }>(
+  db: ReturnType<typeof getServerClient>,
+  items: readonly T[],
+): Promise<T[]> {
+  if (items.length <= 1) return [...items];
+  const taskTypeIds = Array.from(new Set(items.map((it) => it.task_type_id)));
+  const { data: typeRows } = await db
+    .from("task_types")
+    .select("id, slug")
+    .in("id", taskTypeIds);
+  const slugById = new Map(
+    ((typeRows || []) as Array<{ id: number; slug: string }>).map((r) => [r.id, r.slug]),
+  );
+  return items
+    .map((it, originalIdx) => ({
+      it,
+      originalIdx,
+      slug: slugById.get(it.task_type_id) || "",
+    }))
+    .sort((a, b) => {
+      const pa = actionPriority(a.slug);
+      const pb = actionPriority(b.slug);
+      if (pa !== pb) return pa - pb;
+      return a.originalIdx - b.originalIdx;
+    })
+    .map((x) => x.it);
+}
 
 // A single action item inside a bundle task. After migration 047 every task
 // has at least one of these. Pre-bundle "single tasks" are just bundles of 1.
@@ -42,6 +84,11 @@ const taskSchema = z.object({
   point_budget: z.number().min(0.01, "Budget must be greater than 0"),
   points_per_completion: z.number().min(0, "Points per completion cannot be negative").optional(),
   priority: z.enum(["low", "medium", "high"]),
+  // Bundle category — drives worker grid filter chips + admin create-form
+  // layout. Optional with 'engagement' default so legacy callers (single-
+  // task migration backfill, old test fixtures) still validate cleanly.
+  // Backed by tasks.category in migration 051.
+  category: z.enum(["engagement", "creation", "review", "music", "maps", "other"]).optional().default("engagement"),
   deadline: z.string().nullable().optional(),
   status: z.enum(["draft", "pending"]),
   target_type: z.enum(["all_users", "group", "individual"]),
@@ -102,12 +149,24 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
       if (profile && (profile as Record<string, unknown>).status === "suspended")
         return { success: false, error: "Your account is suspended" };
 
-      // Subscription + quota gate (non-admin only)
-      const subErr = await checkActiveSubscription(db, session.user.id);
-      if (subErr) return { success: false, error: subErr };
+      // Group-access grantees are capped by their purchased task limit; all
+      // other non-admins fall through to the existing subscription + quota gate.
+      const access = await resolveGroupAccess(db, session.user.id, session.user.role);
+      if (access.source === "grant") {
+        const cap = access.limits?.tasks;
+        if (cap != null) {
+          const { count } = await db.from("tasks").select("id", { count: "exact", head: true }).eq("created_by", session.user.id);
+          if ((count || 0) >= cap) {
+            return { success: false, error: `You've reached your task limit (${count}/${cap}). Contact an admin to increase it.` };
+          }
+        }
+      } else {
+        const subErr = await checkActiveSubscription(db, session.user.id);
+        if (subErr) return { success: false, error: subErr };
 
-      const quotaErr = await checkQuota(db, session.user.id, session.user.role, "task");
-      if (quotaErr) return { success: false, error: quotaErr };
+        const quotaErr = await checkQuota(db, session.user.id, session.user.role, "task");
+        if (quotaErr) return { success: false, error: quotaErr };
+      }
     }
 
     // Individual tasks: full budget goes to the single assigned user
@@ -197,7 +256,10 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
 
     // Persist every bundle item. If this fails we still leave the task row —
     // the admin can edit/delete to recover. Logging is enough for now.
-    const itemRows = items.map((it, idx) => ({
+    // Items are first re-ordered into the natural worker flow so the saved
+    // sort_order matches the sequence a worker should walk through.
+    const orderedItems = await sortBundleItemsByNaturalFlow(db, items);
+    const itemRows = orderedItems.map((it, idx) => ({
       task_id: taskRecord.id as number,
       task_type_id: it.task_type_id,
       sort_order: idx,
@@ -237,7 +299,8 @@ export async function createTask(formData: z.infer<typeof taskSchema>): Promise<
             type: "system",
             title: "New Task — Review Needed",
             message: `${creatorName} created a new task "${validated.title}". Please review.`,
-            link: `/tasks/${taskRecord.id}`,
+            // Admin lands on /inbox (Tasks awaiting approval section).
+            link: `/inbox`,
             data: { task_id: taskRecord.id, created_by: session.user.id },
           }));
           await db.from("notifications").insert(notifs as never[]);
@@ -496,17 +559,28 @@ export async function updateTask(
     // is still in draft OR no task_assignments rows exist). Otherwise we
     // drop the items field silently so existing item-submissions don't
     // dangle pointing at items that no longer exist.
+    // Once a task has assignments, its bundle items AND its targeting are
+    // locked: replacing items would leave assignment_item_submissions dangling,
+    // and re-targeting (group/user/all_users) would never fan out to the new
+    // audience (createAssignments only runs at create/approve/publish). Drop
+    // those fields silently rather than corrupt or desync live assignments.
+    const { count: assignmentCount } = await db
+      .from("task_assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("task_id", taskId);
+    const hasAssignments = (assignmentCount || 0) > 0;
+
     let replaceItems: z.infer<typeof taskBundleItemSchema>[] | null = null;
-    if (parsed.data.items && parsed.data.items.length > 0) {
-      const { count } = await db
-        .from("task_assignments")
-        .select("id", { count: "exact", head: true })
-        .eq("task_id", taskId);
-      if ((count || 0) === 0) {
-        replaceItems = parsed.data.items;
-      }
+    if (parsed.data.items && parsed.data.items.length > 0 && !hasAssignments) {
+      replaceItems = parsed.data.items;
     }
     delete (updateData as Record<string, unknown>).items;
+
+    if (hasAssignments) {
+      delete (updateData as Record<string, unknown>).target_type;
+      delete (updateData as Record<string, unknown>).target_group_id;
+      delete (updateData as Record<string, unknown>).target_user_id;
+    }
 
     // Keep legacy mirrors in sync if items replaced.
     if (replaceItems) {
@@ -559,9 +633,12 @@ export async function updateTask(
     // Replace bundle items in a fresh insert pass. We've already gated this
     // on "no assignments exist for this task" so there can be no dangling
     // assignment_item_submissions referring to the items we're deleting.
+    // Items are re-ordered into the natural worker flow before insert so
+    // sort_order stays canonical regardless of the admin's click order.
     if (replaceItems) {
       await db.from("task_bundle_items").delete().eq("task_id", taskId);
-      const rows = replaceItems.map((it, idx) => ({
+      const orderedReplaceItems = await sortBundleItemsByNaturalFlow(db, replaceItems);
+      const rows = orderedReplaceItems.map((it, idx) => ({
         task_id: taskId,
         task_type_id: it.task_type_id,
         sort_order: idx,
@@ -606,7 +683,7 @@ export async function updateTask(
           type: "system",
           title: "Task Updated — Review Needed",
           message: `${editorName} updated the task "${taskTitle}". Please review.`,
-          link: `/tasks/${taskId}`,
+          link: `/inbox`,
           data: { task_id: taskId, updated_by: session.user.id },
         }));
         await db.from("notifications").insert(notifs as never[]);
@@ -736,7 +813,7 @@ export async function publishTask(taskId: number): Promise<ApiResponse> {
           type: "system",
           title: "New Task — Review Needed",
           message: `${creatorName} published a task "${String(t.title || "task")}". Please review.`,
-          link: `/tasks/${taskId}`,
+          link: `/inbox`,
           data: { task_id: taskId, created_by: session.user.id },
         }));
         await db.from("notifications").insert(notifs as never[]);
@@ -756,6 +833,7 @@ export async function getTasks(params: PaginationParams & {
   platform_id?: number;
   approval_status?: string;
   created_by?: string;
+  category?: string;
 }): Promise<PaginatedResponse<Record<string, unknown>>> {
   const db = getServerClient();
   const page = params.page || 1;
@@ -764,12 +842,19 @@ export async function getTasks(params: PaginationParams & {
 
   let query = db
     .from("tasks")
-    .select("*, platforms!inner(name, slug, icon), task_types!inner(name, slug), users!tasks_created_by_fkey(name, email)", { count: "exact" });
+    .select(
+      // task_bundle_items added in Entry #20 so the new responsive card
+      // layout can render per-bundle action pills on every tab that lists
+      // tasks. Other columns reach the row via `*`.
+      "*, platforms!inner(name, slug, icon), task_types!inner(name, slug), users!tasks_created_by_fkey(name, email), task_bundle_items(id, points, sort_order, task_types!inner(slug, name))",
+      { count: "exact" }
+    );
 
   if (params.status) query = query.eq("status", params.status);
   if (params.platform_id) query = query.eq("platform_id", params.platform_id);
   if (params.approval_status) query = query.eq("approval_status", params.approval_status);
   if (params.created_by) query = query.eq("created_by", params.created_by);
+  if (params.category) query = query.eq("category", params.category);
   if (params.search) query = query.ilike("title", `%${params.search}%`);
 
   query = query.order("created_at", { ascending: false });
@@ -870,4 +955,59 @@ export async function getPendingApprovalTasks(params?: PaginationParams): Promis
     pageSize,
     totalPages: Math.ceil((count || 0) / pageSize),
   };
+}
+
+// ============================================================================
+// getTaskRecentSubmitters — drives the "Recent activity" card on /tasks/[id].
+// ============================================================================
+// Cheap two-query parallel fetch: a count of approved assignments + the most
+// recent N completers with name/avatar. Used by the worker-facing task detail
+// page to show social proof + answer "k k kore felese" without exposing the
+// full submitter list.
+//
+// Auth-open by design — anyone who can read the task should see who's already
+// done it. The names + images come from the public `users` table; no private
+// fields are exposed. If we ever add a "private bundles" feature, gate here.
+export async function getTaskRecentSubmitters(
+  taskId: number,
+  limit: number = 5,
+): Promise<{
+  totalCompleted: number;
+  recent: Array<{ user_id: string; name: string | null; image: string | null; completed_at: string }>;
+}> {
+  // Require a signed-in user — this is only consumed by the auth-gated task
+  // detail page, so there's no reason to leave the server action callable by
+  // anonymous clients (it would otherwise let anyone enumerate who completed
+  // any task by id).
+  const session = await auth();
+  if (!session?.user?.id) return { totalCompleted: 0, recent: [] };
+
+  const db = getServerClient();
+  const safeLimit = Math.max(1, Math.min(limit, 20));
+
+  const [countRes, rowsRes] = await Promise.all([
+    db.from("task_assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("task_id", taskId)
+      .eq("status", "approved"),
+    db.from("task_assignments")
+      .select("user_id, reviewed_at, users!task_assignments_user_id_fkey(name, image)")
+      .eq("task_id", taskId)
+      .eq("status", "approved")
+      .order("reviewed_at", { ascending: false })
+      .limit(safeLimit),
+  ]);
+
+  const recent = ((rowsRes.data || []) as unknown as Array<{
+    user_id: string;
+    reviewed_at: string;
+    users: { name: string | null; image: string | null } | null;
+  }>).map((r) => ({
+    user_id: r.user_id,
+    name: r.users?.name ?? null,
+    image: r.users?.image ?? null,
+    completed_at: r.reviewed_at,
+  }));
+
+  return { totalCompleted: countRes.count || 0, recent };
 }

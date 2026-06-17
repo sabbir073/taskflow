@@ -5,6 +5,7 @@ import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
 import { slugify } from "@/lib/utils";
 import { checkActiveSubscription, checkQuota } from "@/lib/subscription-check";
+import { resolveGroupAccess } from "@/lib/actions/group-access";
 import { recordAudit } from "@/lib/audit";
 import { sendGroupApprovedEmail, sendGroupRejectedEmail } from "@/lib/email";
 import { isStaffRole, STAFF_ROLES } from "@/lib/constants/roles";
@@ -97,11 +98,26 @@ export async function createGroup(formData: z.infer<typeof groupSchema>): Promis
       if (profile && (profile as Record<string, unknown>).status === "suspended")
         return { success: false, error: "Your account is suspended" };
 
-      const subErr = await checkActiveSubscription(db, session.user.id);
-      if (subErr) return { success: false, error: subErr };
-
-      const quotaErr = await checkQuota(db, session.user.id, session.user.role, "group");
-      if (quotaErr) return { success: false, error: quotaErr };
+      // Group access is gated: a user needs an approved group-access grant OR
+      // an active subscription (both paths kept). No access → must apply.
+      const access = await resolveGroupAccess(db, session.user.id, session.user.role);
+      if (!access.access) {
+        return { success: false, error: "You need group access to create a group. Apply for a group plan from the Groups page." };
+      }
+      if (access.source === "grant") {
+        const cap = access.limits?.groups;
+        if (cap != null) {
+          const { count } = await db.from("groups").select("id", { count: "exact", head: true }).eq("created_by", session.user.id);
+          if ((count || 0) >= cap) {
+            return { success: false, error: `You've reached your group limit (${count}/${cap}). Contact an admin to increase it.` };
+          }
+        }
+      } else if (access.source === "subscription") {
+        const subErr = await checkActiveSubscription(db, session.user.id);
+        if (subErr) return { success: false, error: subErr };
+        const quotaErr = await checkQuota(db, session.user.id, session.user.role, "group");
+        if (quotaErr) return { success: false, error: quotaErr };
+      }
     }
 
     const slug = slugify(validated.name) + "-" + Date.now().toString(36);
@@ -144,7 +160,8 @@ export async function createGroup(formData: z.infer<typeof groupSchema>): Promis
         db,
         "New Group — Review Needed",
         `${creatorName} created a group "${validated.name}". Please review.`,
-        `/groups/${groupId}`,
+        // Admin lands on /inbox (Groups awaiting approval section).
+        `/inbox`,
         { group_id: groupId, created_by: session.user.id }
       );
     }
@@ -349,7 +366,7 @@ export async function updateGroup(
         db,
         "Group Updated — Review Needed",
         `${editorName} updated the group "${groupName}". Please review.`,
-        `/groups/${groupId}`,
+        `/inbox`,
         { group_id: groupId, updated_by: session.user.id }
       );
       return { success: true, message: "Group updated and sent for admin re-approval" };
@@ -503,7 +520,7 @@ export async function requestGroupDeletion(groupId: number, reason?: string): Pr
       db,
       "Group Deletion Requested",
       `${requesterName} requested deletion of "${String(g.name || "")}"${reason ? `: ${reason}` : "."}`,
-      `/groups/${groupId}`,
+      `/inbox`,
       { group_id: groupId, requested_by: session.user.id, reason }
     );
 
@@ -643,12 +660,35 @@ export async function getMyGroups(params?: PaginationParams): Promise<PaginatedR
   return { data: (data || []) as Record<string, unknown>[], total: count || 0, page, pageSize, totalPages: Math.ceil((count || 0) / pageSize) };
 }
 
-// Only approved + active groups I'm a member of — used as the task-assignment target list
+// Groups eligible for "Target = Specific Group" on the Create Task form.
+//
+//   • Staff (super_admin / admin / moderator) → every approved + active group
+//     in the system. Staff often manage tasks for groups they don't sit
+//     inside; restricting them to membership made onboarding new groups
+//     painful.
+//   • Non-staff users (e.g. group_leader picking their own group)
+//     → only approved + active groups they are a `group_members` row of.
+//
+// Server-side `createTask` (lib/actions/tasks.ts) still re-validates the
+// picked group is approved + active, so a tampered client can't bypass.
 export async function getAssignableGroups(): Promise<Record<string, unknown>[]> {
   const session = await auth();
   if (!session?.user?.id) return [];
 
   const db = getServerClient();
+
+  // Staff path — every approved + active group, no membership constraint.
+  if (isAdmin(session.user.role)) {
+    const { data } = await db
+      .from("groups")
+      .select("id, name, approval_status, status")
+      .eq("approval_status", "approved")
+      .eq("status", "active")
+      .order("name");
+    return (data || []) as Record<string, unknown>[];
+  }
+
+  // Non-staff path — only groups the caller is a member of.
   const { data: memberships } = await db.from("group_members").select("group_id").eq("user_id", session.user.id);
   const groupIds = ((memberships || []) as Record<string, unknown>[]).map((m) => m.group_id as number);
   if (groupIds.length === 0) return [];
@@ -683,8 +723,237 @@ export async function leaveGroup(groupId: number): Promise<ApiResponse> {
     if (group && (group as Record<string, unknown>).leader_id === session.user.id)
       return { success: false, error: "Leaders cannot leave. Transfer leadership first." };
     await db.from("group_members").delete().eq("group_id", groupId).eq("user_id", session.user.id);
-    return { success: true, message: "Left group" };
+
+    // Cancel the leaver's pending / in-progress assignments for this group's
+    // tasks. Submitted / approved / rejected rows stay so admins can finish
+    // reviewing and the worker still gets credit for completed work.
+    let cancelled = 0;
+    try {
+      cancelled = await cancelLeavingMemberAssignments(db, groupId, session.user.id);
+    } catch (err) {
+      console.error("[leaveGroup] assignment cancel failed", err);
+    }
+
+    return {
+      success: true,
+      message: cancelled > 0
+        ? `Left group. ${cancelled} pending task${cancelled === 1 ? "" : "s"} cancelled.`
+        : "Left group",
+    };
   } catch { return { success: false, error: "Failed to leave group" }; }
+}
+
+// When a user joins (or is added to) an existing group, retroactively create
+// task_assignments for every live group-targeted task so the new member
+// doesn't miss campaigns published before they joined. Mirrors the
+// per-member fan-out in lib/actions/tasks.ts `createAssignments`:
+//   1. Look up tasks WHERE target_type='group' AND target_group_id=groupId
+//      AND status='pending' AND approval_status='approved' AND deadline not
+//      past. These are the "still live, accepting submissions" tasks.
+//   2. For each, skip if an assignment already exists (defensive — the
+//      unique-row constraint would catch it but we want a clean error path
+//      and we want to count NEW assignments only for the notification).
+//   3. Insert task_assignments + one assignment_item_submissions per
+//      task_bundle_items row (same shape as createAssignments).
+//   4. Send one in-app notification per task so the new member sees the
+//      tasks immediately in /notifications without waiting for a refresh.
+// Returns the count of tasks the user was newly assigned to — used in the
+// success toast on the addMember path.
+async function backfillNewMemberAssignments(
+  db: DB,
+  groupId: number,
+  userId: string,
+): Promise<number> {
+  const nowIso = new Date().toISOString();
+  const { data: tasks } = await db
+    .from("tasks")
+    .select("id, title, deadline")
+    .eq("target_type", "group")
+    .eq("target_group_id", groupId)
+    .eq("status", "pending")
+    .eq("approval_status", "approved");
+  type TaskRow = { id: number; title?: unknown; deadline?: unknown };
+  const taskList: TaskRow[] = ((tasks || []) as TaskRow[]).filter((t) => {
+    const dl = t.deadline ? String(t.deadline) : null;
+    return !dl || dl > nowIso;
+  });
+  if (taskList.length === 0) return 0;
+
+  // Look up the user's existing assignments for these tasks. Split into:
+  //   • alreadyActive    → ANY non-cancelled status. Skip; user is on track.
+  //   • toRevive         → cancelled by a previous remove/leave. Flip back
+  //                        to 'pending' so the row stays stable (preserves
+  //                        any audit / history). Item submissions also
+  //                        revert from cancelled if any.
+  //   • new              → no row at all. Insert fresh assignment.
+  const taskIds = taskList.map((t) => t.id as number);
+  const { data: existing } = await db
+    .from("task_assignments")
+    .select("id, task_id, status")
+    .eq("user_id", userId)
+    .in("task_id", taskIds);
+  const existingByTask = new Map<number, { id: number; status: string }>();
+  for (const r of (existing || []) as Array<{ id: number; task_id: number; status: string }>) {
+    existingByTask.set(r.task_id, { id: r.id, status: r.status });
+  }
+  const toReviveIds: number[] = [];
+  const newTasks: TaskRow[] = [];
+  for (const t of taskList) {
+    const e = existingByTask.get(t.id);
+    if (!e) {
+      newTasks.push(t);
+    } else if (e.status === "cancelled") {
+      toReviveIds.push(e.id);
+    }
+    // Other statuses (pending / in_progress / submitted / approved / rejected)
+    // are deliberately untouched — the user already has live state.
+  }
+
+  // Revive cancelled assignments first — flip status back to 'pending' and
+  // un-cancel their item submissions so the worker can pick up where they
+  // (or the prior state) left off.
+  let revived = 0;
+  if (toReviveIds.length > 0) {
+    const { data: revivedRows } = await db
+      .from("task_assignments")
+      .update({ status: "pending" } as never)
+      .in("id", toReviveIds)
+      .select("id, task_id");
+    revived = ((revivedRows || []) as Record<string, unknown>[]).length;
+    // Revert any 'cancelled' item submissions back to 'pending' so the per-
+    // step grid is interactive again.
+    await db
+      .from("assignment_item_submissions")
+      .update({ status: "pending" } as never)
+      .in("assignment_id", toReviveIds)
+      .eq("status", "cancelled");
+  }
+
+  if (newTasks.length === 0) return revived;
+
+  // Insert one task_assignments row per task → return ids so we can fan out
+  // per-item submission rows in a single batch.
+  const assignmentRows = newTasks.map((t) => ({
+    task_id: t.id,
+    user_id: userId,
+    status: "pending",
+  }));
+  const { data: inserted } = await db
+    .from("task_assignments")
+    .insert(assignmentRows as never[])
+    .select("id, task_id");
+  const insertedRows = (inserted || []) as Array<{ id: number; task_id: number }>;
+  if (insertedRows.length === 0) return revived;
+
+  // Per-item submission grid — one row per (assignment, bundle item).
+  const newTaskIds = insertedRows.map((r) => r.task_id);
+  const { data: bundleItems } = await db
+    .from("task_bundle_items")
+    .select("id, task_id")
+    .in("task_id", newTaskIds);
+  const itemsByTask = new Map<number, number[]>();
+  for (const bi of (bundleItems || []) as Array<{ id: number; task_id: number }>) {
+    if (!itemsByTask.has(bi.task_id)) itemsByTask.set(bi.task_id, []);
+    itemsByTask.get(bi.task_id)!.push(bi.id);
+  }
+  const submissionRows: Array<{ assignment_id: number; bundle_item_id: number; status: "pending" }> = [];
+  for (const a of insertedRows) {
+    for (const itemId of (itemsByTask.get(a.task_id) || [])) {
+      submissionRows.push({ assignment_id: a.id, bundle_item_id: itemId, status: "pending" });
+    }
+  }
+  if (submissionRows.length > 0) {
+    await db.from("assignment_item_submissions").insert(submissionRows as never[]);
+  }
+
+  // One notification per newly-assigned task so the member's /notifications
+  // tab shows what they picked up. Best-effort — never block the add on
+  // notification failure.
+  try {
+    const titleById = new Map(newTasks.map((t) => [t.id, String(t.title || "")]));
+    const notifs = insertedRows.map((r) => ({
+      user_id: userId,
+      type: "task_assigned" as const,
+      title: "Task assigned to your group",
+      message: `You were assigned "${titleById.get(r.task_id) || "a task"}" because you joined a group it targets.`,
+      link: `/tasks/${r.task_id}`,
+      data: { task_id: r.task_id, group_id: groupId, source: "group_backfill" },
+    }));
+    if (notifs.length > 0) await db.from("notifications").insert(notifs as never[]);
+  } catch (err) {
+    console.error("[backfillNewMemberAssignments] notification insert failed", err);
+  }
+
+  return revived + insertedRows.length;
+}
+
+// When a user leaves (or is removed from) a group, cancel their not-yet-
+// submitted task_assignments for that group's tasks. Already-submitted /
+// approved / rejected work stays untouched — that's real work the worker
+// did and the admin needs to keep auditing.
+//
+// "Pending cancel" set: status IN ('pending', 'in_progress'). We do NOT
+// touch 'rejected' because the worker may want to re-submit (the
+// sequential gate allows resubmit on rejected items); cancelling those
+// would silently kill their resubmission path. We also don't touch
+// 'submitted' (still under admin review) or 'approved' (already paid).
+//
+// Returns count of cancelled rows so callers can include in toast msgs.
+async function cancelLeavingMemberAssignments(
+  db: DB,
+  groupId: number,
+  userId: string,
+): Promise<number> {
+  // Two-step: look up matching task_ids, then update by id list. We don't
+  // use a single `update().in("task_id", subquery)` because PostgREST
+  // doesn't support correlated subqueries on update statements.
+  const { data: tasks } = await db
+    .from("tasks")
+    .select("id")
+    .eq("target_type", "group")
+    .eq("target_group_id", groupId);
+  const taskIds = ((tasks || []) as Record<string, unknown>[]).map((t) => t.id as number);
+  if (taskIds.length === 0) return 0;
+
+  const { data: updated } = await db
+    .from("task_assignments")
+    .update({ status: "cancelled" } as never)
+    .eq("user_id", userId)
+    .in("task_id", taskIds)
+    .in("status", ["pending", "in_progress"])
+    .select("id");
+  return ((updated || []) as Record<string, unknown>[]).length;
+}
+
+// Enforce the group leader's TOTAL member cap from their group-access grant
+// (counts non-leader members across ALL groups they lead). Returns an error
+// string when the cap is hit, else null. No grant (staff/subscription leader)
+// → only the per-group max_members applies.
+async function checkLeaderMemberCap(db: DB, leaderId: string): Promise<string | null> {
+  const { data: grants } = await db
+    .from("group_access_grants")
+    .select("max_members")
+    .eq("user_id", leaderId)
+    .eq("is_active", true)
+    .limit(1);
+  const grant = ((grants || []) as Record<string, unknown>[])[0];
+  if (!grant) return null;
+  const cap = grant.max_members == null ? null : Number(grant.max_members);
+  if (cap == null) return null;
+
+  const { data: ledGroups } = await db.from("groups").select("id").eq("leader_id", leaderId);
+  const ids = ((ledGroups || []) as Record<string, unknown>[]).map((r) => r.id as number);
+  if (ids.length === 0) return null;
+
+  const { count } = await db
+    .from("group_members")
+    .select("id", { count: "exact", head: true })
+    .in("group_id", ids)
+    .neq("role", "leader");
+  if ((count || 0) >= cap) {
+    return `Member limit reached (${count}/${cap}) across your groups. Contact an admin to increase it.`;
+  }
+  return null;
 }
 
 export async function addMemberByEmail(groupId: number, email: string): Promise<ApiResponse> {
@@ -701,6 +970,9 @@ export async function addMemberByEmail(groupId: number, email: string): Promise<
 
     const { count } = await db.from("group_members").select("id", { count: "exact", head: true }).eq("group_id", groupId);
     if ((count || 0) >= Number(g.max_members)) return { success: false, error: "Group is full" };
+
+    const capErr = await checkLeaderMemberCap(db, g.leader_id as string);
+    if (capErr) return { success: false, error: capErr };
 
     const { data: user } = await db.from("users").select("id, name").eq("email", email.trim().toLowerCase()).single();
     if (!user) return { success: false, error: `No user found with email: ${email}` };
@@ -728,7 +1000,24 @@ export async function addMemberByEmail(groupId: number, email: string): Promise<
       { group_id: groupId }
     );
 
-    return { success: true, message: `${email} added to group` };
+    // Retroactively assign the new member to every live group-targeted task.
+    // Only runs when the group is approved — pending groups can't have live
+    // tasks anyway (createTask gates on approval_status='approved').
+    let backfilled = 0;
+    if (isApproved) {
+      try {
+        backfilled = await backfillNewMemberAssignments(db, groupId, userId);
+      } catch (err) {
+        console.error("[addMemberByEmail] task backfill failed", err);
+      }
+    }
+
+    return {
+      success: true,
+      message: backfilled > 0
+        ? `${email} added to group and auto-assigned to ${backfilled} live task${backfilled === 1 ? "" : "s"}.`
+        : `${email} added to group`,
+    };
   } catch { return { success: false, error: "Failed to add member" }; }
 }
 
@@ -744,7 +1033,7 @@ export async function addMember(groupId: number, userId: string): Promise<ApiRes
     // force-join themselves (or anyone else) into any group.
     const { data: group } = await db
       .from("groups")
-      .select("leader_id, max_members")
+      .select("leader_id, max_members, approval_status")
       .eq("id", groupId)
       .single();
     if (!group) return { success: false, error: "Group not found" };
@@ -761,9 +1050,28 @@ export async function addMember(groupId: number, userId: string): Promise<ApiRes
       return { success: false, error: "Group is full" };
     }
 
+    const capErr = await checkLeaderMemberCap(db, g.leader_id as string);
+    if (capErr) return { success: false, error: capErr };
+
     const { error } = await db.from("group_members").insert({ group_id: groupId, user_id: userId, role: "member" } as never);
     if (error) { if (error.code === "23505") return { success: false, error: "Already a member" }; return { success: false, error: "Failed to add member" }; }
-    return { success: true, message: "Member added" };
+
+    // Retroactively assign new member to every live group task (only when
+    // the group is approved — pre-approval groups can't have live tasks).
+    let backfilled = 0;
+    if (g.approval_status === "approved") {
+      try {
+        backfilled = await backfillNewMemberAssignments(db, groupId, userId);
+      } catch (err) {
+        console.error("[addMember] task backfill failed", err);
+      }
+    }
+    return {
+      success: true,
+      message: backfilled > 0
+        ? `Member added and auto-assigned to ${backfilled} live task${backfilled === 1 ? "" : "s"}.`
+        : "Member added",
+    };
   } catch { return { success: false, error: "Failed to add member" }; }
 }
 
@@ -781,17 +1089,33 @@ export async function removeMember(groupId: number, userId: string): Promise<Api
 
     await db.from("group_members").delete().eq("group_id", groupId).eq("user_id", userId);
 
+    // Cancel the removed member's pending / in-progress assignments for this
+    // group's tasks (submitted / approved / rejected work stays).
+    let cancelled = 0;
+    try {
+      cancelled = await cancelLeavingMemberAssignments(db, groupId, userId);
+    } catch (err) {
+      console.error("[removeMember] assignment cancel failed", err);
+    }
+
     await notifyUsers(
       db,
       [userId],
       "system",
       "Removed from Group",
-      `You were removed from the group "${String(g.name || "")}".`,
+      cancelled > 0
+        ? `You were removed from the group "${String(g.name || "")}". ${cancelled} pending task${cancelled === 1 ? "" : "s"} cancelled.`
+        : `You were removed from the group "${String(g.name || "")}".`,
       null,
       { group_id: groupId }
     );
 
-    return { success: true, message: "Member removed" };
+    return {
+      success: true,
+      message: cancelled > 0
+        ? `Member removed. ${cancelled} pending task${cancelled === 1 ? "" : "s"} cancelled.`
+        : "Member removed",
+    };
   } catch { return { success: false, error: "Failed to remove member" }; }
 }
 
@@ -926,6 +1250,8 @@ export async function notifyAssignmentToSubmit(assignmentId: number): Promise<Ap
 // STATS / LEADERBOARD (unchanged)
 // ============================================================================
 export async function getGroupStats(groupId: number) {
+  const session = await auth();
+  if (!session?.user?.id) return { totalMembers: 0, totalTasks: 0, completedTasks: 0, totalPoints: 0 };
   const db = getServerClient();
   const { data: memberIds } = await db.from("group_members").select("user_id").eq("group_id", groupId);
   const ids = ((memberIds || []) as Record<string, unknown>[]).map(m => m.user_id as string);
@@ -942,6 +1268,8 @@ export async function getGroupStats(groupId: number) {
 }
 
 export async function getGroupLeaderboard(groupId: number) {
+  const session = await auth();
+  if (!session?.user?.id) return [];
   const db = getServerClient();
   const { data: memberIds } = await db.from("group_members").select("user_id").eq("group_id", groupId);
   const ids = ((memberIds || []) as Record<string, unknown>[]).map(m => m.user_id as string);

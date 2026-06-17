@@ -2,10 +2,22 @@
 
 import { getServerClient } from "@/lib/db/supabase";
 import { auth } from "@/auth";
+import { isStaffRole } from "@/lib/constants/roles";
+
+// Reports + admin-dashboard analytics are staff-only. Server actions are
+// directly POST-able, so each must gate itself — the /reports and /dashboard
+// page guards do NOT protect an action invoked by a crafted client.
+// (exportReportCSV / getTopUsersReport would otherwise leak every user's
+// name + email to any caller.)
+async function isStaffCaller(): Promise<boolean> {
+  const session = await auth();
+  return !!session?.user?.id && isStaffRole(session.user.role);
+}
 
 // ===== Dashboard Stats =====
 
 export async function getAdminDashboardStats() {
+  if (!(await isStaffCaller())) return { totalTasks: 0, pendingReviews: 0, activeUsers: 0, completionRate: 0 };
   const db = getServerClient();
   const [tasks, pendingReviews, activeUsers, completedAssignments, totalAssignments] = await Promise.all([
     db.from("tasks").select("id", { count: "exact", head: true }),
@@ -43,6 +55,12 @@ export async function getUserDashboardStats() {
 // rejections, and earned points instead of strangers' work.
 // Omit `userId` (admin view) for the platform-wide feed.
 export async function getRecentActivity(limit = 10, userId?: string) {
+  // A user may read their OWN activity feed; the global/admin feed (no userId)
+  // and anyone else's feed are staff-only.
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  const staff = isStaffRole(session.user.role);
+  if (!staff && (!userId || userId !== session.user.id)) return [];
   const db = getServerClient();
   let query = db.from("task_assignments")
     .select("id, status, submitted_at, reviewed_at, points_awarded, rejection_reason, users!task_assignments_user_id_fkey(name), tasks!inner(title)")
@@ -54,6 +72,7 @@ export async function getRecentActivity(limit = 10, userId?: string) {
 }
 
 export async function getTopPerformers(limit = 5) {
+  if (!(await isStaffCaller())) return [];
   const db = getServerClient();
   const { data } = await db.from("profiles").select("user_id, total_points, tasks_completed, users!inner(name, image)").eq("status", "active").order("total_points", { ascending: false }).limit(limit);
   return (data || []) as Record<string, unknown>[];
@@ -81,6 +100,7 @@ function getDateRange(filters: ReportFilters): { from: string; to: string } {
 
 // Overview stats
 export async function getOverviewReport(filters: ReportFilters) {
+  if (!(await isStaffCaller())) return { totalTasks: 0, newUsers: 0, newGroups: 0, totalPointsMoved: 0, totalBudgetAmount: 0, completedTasks: 0, pendingTasks: 0, rejectedTasks: 0 };
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
@@ -125,6 +145,7 @@ export async function getOverviewReport(filters: ReportFilters) {
 
 // Tasks by platform
 export async function getTasksByPlatform(filters: ReportFilters) {
+  if (!(await isStaffCaller())) return [];
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
@@ -150,6 +171,7 @@ export async function getAssignmentStatusDistribution(filters: ReportFilters) {
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
+  if (!(await isStaffCaller())) return [];
   const statuses = ["pending", "in_progress", "submitted", "approved", "rejected"];
   const { data } = await db
     .from("task_assignments")
@@ -167,6 +189,7 @@ export async function getAssignmentStatusDistribution(filters: ReportFilters) {
 
 // Points transaction over time
 export async function getPointsOverTime(filters: ReportFilters) {
+  if (!(await isStaffCaller())) return [];
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
@@ -191,6 +214,7 @@ export async function getPointsOverTime(filters: ReportFilters) {
 
 // User growth over time
 export async function getUserGrowth(filters: ReportFilters) {
+  if (!(await isStaffCaller())) return [];
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
@@ -215,6 +239,7 @@ export async function getUserGrowth(filters: ReportFilters) {
 
 // Task completion trend over time
 export async function getCompletionTrend(filters: ReportFilters) {
+  if (!(await isStaffCaller())) return [];
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 
@@ -239,6 +264,7 @@ export async function getCompletionTrend(filters: ReportFilters) {
 
 // Top users report
 export async function getTopUsersReport(filters: ReportFilters, limit = 10) {
+  if (!(await isStaffCaller())) return [];
   const db = getServerClient();
 
   const { data } = await db
@@ -264,6 +290,7 @@ export async function getTopUsersReport(filters: ReportFilters, limit = 10) {
 
 // Export data as CSV string
 export async function exportReportCSV(type: "tasks" | "users" | "points" | "assignments", filters: ReportFilters): Promise<string> {
+  if (!(await isStaffCaller())) return "";
   const db = getServerClient();
   const { from, to } = getDateRange(filters);
 

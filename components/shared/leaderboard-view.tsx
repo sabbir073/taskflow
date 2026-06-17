@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, Badge, Select } from "@/components/ui";
 import { Trophy, Medal, Award, Flame, Coins, CheckCircle2, Crown } from "lucide-react";
 import { getLeaderboard } from "@/lib/actions/points";
-import { getInitials } from "@/lib/utils";
+import { getInitials, cn } from "@/lib/utils";
 
 type TimeFilter = "all_time" | "this_month" | "this_week" | "today";
 
@@ -16,15 +16,52 @@ const TIME_LABEL: Record<TimeFilter, string> = {
   today: "Today",
 };
 
+// Avatar that renders the user's real profile photo when present, falling back
+// to a gradient initials tile (and also on image load error). getLeaderboard
+// already fetches `image` for every row — it was previously thrown away here.
+function LbAvatar({
+  name,
+  image,
+  className,
+  fallbackClassName,
+}: {
+  name: string;
+  image?: string | null;
+  className?: string;
+  fallbackClassName?: string;
+}) {
+  const [errored, setErrored] = useState(false);
+  if (image && !errored) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={image}
+        alt={name}
+        onError={() => setErrored(true)}
+        className={cn("object-cover", className)}
+      />
+    );
+  }
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center font-bold",
+        className,
+        fallbackClassName ?? "bg-gradient-to-br from-primary/20 to-accent/20 text-primary",
+      )}
+    >
+      {getInitials(name)}
+    </div>
+  );
+}
+
 // ============================================================================
-// Leaderboard — desktop layout (podium grid + table) untouched.
-// Mobile (sm-) gets an app-style layout:
-//   - #1 featured "champion" hero card across the full width
-//   - #2 & #3 as a 2-up row beneath
-//   - Full ranking list as stacked cards instead of a horizontally-cramped
-//     <table> that previously bled past the viewport.
-// Toggled with `hidden sm:block` and `sm:hidden` so neither side affects
-// the other.
+// Leaderboard responsive layout
+//   - Mobile (sm-): app-style — #1 champion hero + #2/#3 podium row + ranked
+//     stacked cards.
+//   - Tablet/Desktop (sm+): polished 3-column podium (champion elevated, medal
+//     accent bars, real avatars) + a ranked table with avatars.
+// Toggled with `hidden sm:*` and `sm:hidden` so neither side affects the other.
 // ============================================================================
 
 export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
@@ -36,9 +73,9 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
   });
 
   const medals = [
-    { icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10", border: "border-yellow-500/30", label: "1st" },
-    { icon: Medal, color: "text-gray-400", bg: "bg-gray-400/10", border: "border-gray-400/30", label: "2nd" },
-    { icon: Award, color: "text-amber-600", bg: "bg-amber-600/10", border: "border-amber-600/30", label: "3rd" },
+    { icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10", border: "border-yellow-500/30", accent: "bg-yellow-500", label: "1st" },
+    { icon: Medal, color: "text-gray-400", bg: "bg-gray-400/10", border: "border-gray-400/30", accent: "bg-gray-400", label: "2nd" },
+    { icon: Award, color: "text-amber-600", bg: "bg-amber-600/10", border: "border-amber-600/30", accent: "bg-amber-600", label: "3rd" },
   ];
 
   const top3 = !isLoading && entries && entries.length > 0 ? entries.slice(0, 3) : null;
@@ -60,33 +97,81 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
       </div>
 
       {/* ====================================================================
-          DESKTOP PODIUM — original 3-column layout, untouched
+          DESKTOP / TABLET PODIUM — champion elevated, medal accents, avatars
           ==================================================================== */}
       {top3 && (
-        <div className="hidden sm:grid grid-cols-3 gap-4 mb-8">
+        <div className="hidden sm:grid grid-cols-3 gap-4 items-end mb-8">
           {[1, 0, 2].map((idx) => {
             const entry = top3[idx];
             if (!entry) return null;
             const medal = medals[idx];
             const MedalIcon = medal.icon;
             const isMe = entry.user_id === currentUserId;
+            const isChampion = idx === 0;
 
             return (
-              <Card key={entry.user_id} className={`${medal.border} border-2 ${idx === 0 ? "md:-mt-4" : ""} ${isMe ? "ring-2 ring-primary/30" : ""}`}>
-                <CardContent className="p-5 text-center">
-                  <div className={`w-12 h-12 rounded-full ${medal.bg} flex items-center justify-center mx-auto mb-3`}>
-                    <MedalIcon className={`w-6 h-6 ${medal.color}`} />
+              <Card
+                key={entry.user_id}
+                className={cn(
+                  "relative overflow-hidden border-2 text-center",
+                  medal.border,
+                  isChampion ? "md:-mt-6 shadow-lg" : "",
+                  isMe ? "ring-2 ring-primary/40" : "",
+                )}
+              >
+                {isChampion && (
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-yellow-300/20 via-orange-300/15 to-pink-300/15 dark:from-yellow-500/15 dark:via-orange-500/10 dark:to-pink-500/10" />
+                )}
+                <div className={cn("absolute inset-x-0 top-0 h-1", medal.accent)} />
+
+                <CardContent className={cn("relative", isChampion ? "p-6" : "p-5")}>
+                  {/* Medal pill */}
+                  <div className={cn("inline-flex items-center gap-1 px-2.5 py-1 rounded-full", medal.bg, medal.color)}>
+                    <MedalIcon className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider">{medal.label}</span>
                   </div>
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-lg font-bold text-primary mx-auto mb-2">
-                    {getInitials(entry.name)}
+
+                  {/* Avatar with medal-color ring + crown for champion */}
+                  <div className={cn("relative mx-auto mt-3", isChampion ? "w-20 h-20" : "w-16 h-16")}>
+                    <div
+                      className={cn(
+                        "absolute inset-0 rounded-full p-[2.5px]",
+                        isChampion ? "bg-gradient-to-br from-yellow-400 via-orange-400 to-pink-500 shadow-lg shadow-orange-400/25" : medal.accent,
+                      )}
+                    >
+                      <div className="w-full h-full rounded-full bg-card p-0.5">
+                        <LbAvatar
+                          name={entry.name}
+                          image={entry.image}
+                          className={cn("w-full h-full rounded-full", isChampion ? "text-xl" : "text-base")}
+                        />
+                      </div>
+                    </div>
+                    {isChampion && (
+                      <div className="absolute -top-1 -right-1 w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center shadow ring-2 ring-card">
+                        <Crown className="w-4 h-4 text-white" />
+                      </div>
+                    )}
                   </div>
-                  <p className="font-bold text-sm truncate">{entry.name}</p>
-                  <p className="text-2xl font-bold text-warning mt-1">{entry.total_points.toFixed(2)}</p>
-                  <p className="text-xs text-muted-foreground">pts</p>
-                  <div className="flex items-center justify-center gap-1 mt-2 text-xs text-muted-foreground">
-                    <Flame className="w-3 h-3 text-accent" />
-                    {entry.current_streak}d streak
+
+                  <p className={cn("mt-3 font-bold truncate", isChampion ? "text-base" : "text-sm")}>{entry.name}</p>
+                  <p className={cn("font-black text-warning tabular-nums mt-1 leading-none", isChampion ? "text-3xl" : "text-2xl")}>
+                    {entry.total_points.toFixed(2)}
+                  </p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">points</p>
+
+                  {/* Tasks + streak chips */}
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success text-[11px] font-bold tabular-nums">
+                      <CheckCircle2 className="w-3 h-3" />{entry.tasks_completed}
+                    </span>
+                    {entry.current_streak > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[11px] font-bold tabular-nums">
+                        <Flame className="w-3 h-3" />{entry.current_streak}d
+                      </span>
+                    )}
                   </div>
+
                   {isMe && <Badge variant="primary" className="mt-2">You</Badge>}
                 </CardContent>
               </Card>
@@ -131,9 +216,12 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
                       <div className="relative w-24 h-24 mx-auto mt-4">
                         <div className="absolute inset-0 rounded-full bg-gradient-to-br from-yellow-400 via-orange-400 to-pink-500 p-[3px] shadow-xl shadow-orange-400/30">
                           <div className="w-full h-full rounded-full bg-card flex items-center justify-center p-1">
-                            <div className="w-full h-full rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-2xl font-bold text-white">
-                              {getInitials(first.name)}
-                            </div>
+                            <LbAvatar
+                              name={first.name}
+                              image={first.image}
+                              className="w-full h-full rounded-full text-2xl"
+                              fallbackClassName="bg-gradient-to-br from-primary to-accent text-white"
+                            />
                           </div>
                         </div>
                         <div className="absolute -top-1 -right-1 w-9 h-9 rounded-full bg-yellow-500 flex items-center justify-center shadow-lg ring-2 ring-card">
@@ -181,7 +269,7 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
                 if (!slot.entry) return null;
                 const m = medals[slot.idx];
                 const Icon = slot.idx === 1 ? SecondIcon : ThirdIcon;
-                const accent = slot.idx === 1 ? "bg-gray-400" : "bg-amber-600";
+                const accent = m.accent;
 
                 return (
                   <Card key={slot.entry.user_id} className={`relative overflow-hidden ${slot.isMe ? "border-primary/40 ring-2 ring-primary/20" : "border-border/60"}`}>
@@ -198,9 +286,11 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
                       {/* Circle avatar with subtle medal-color ring */}
                       <div className={`relative w-16 h-16 mx-auto mt-2.5 rounded-full p-[2px] ${accent}`}>
                         <div className="w-full h-full rounded-full bg-card flex items-center justify-center p-0.5">
-                          <div className="w-full h-full rounded-full bg-gradient-to-br from-primary/25 to-accent/25 flex items-center justify-center text-sm font-bold text-primary">
-                            {getInitials(slot.entry.name)}
-                          </div>
+                          <LbAvatar
+                            name={slot.entry.name}
+                            image={slot.entry.image}
+                            className="w-full h-full rounded-full text-sm"
+                          />
                         </div>
                       </div>
 
@@ -227,7 +317,7 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
       })()}
 
       {/* ====================================================================
-          DESKTOP FULL LIST — original table, untouched
+          DESKTOP / TABLET FULL LIST — ranked table with avatars
           ==================================================================== */}
       <Card className="hidden sm:block">
         <CardContent className="p-0">
@@ -253,26 +343,25 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
                 return (
                   <tr key={entry.user_id} className={`border-b border-border/30 transition-colors ${isMe ? "bg-primary/5" : "hover:bg-muted/20"}`}>
                     <td className="px-5 py-3">
-                      {medal ? (
-                        <span className={`font-bold ${medal.color}`}>#{entry.rank}</span>
-                      ) : (
-                        <span className="text-muted-foreground">#{entry.rank}</span>
-                      )}
+                      <div className={cn(
+                        "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-extrabold tabular-nums",
+                        medal ? `${medal.bg} ${medal.color} border ${medal.border}` : "text-muted-foreground",
+                      )}>
+                        {entry.rank}
+                      </div>
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary">
-                          {getInitials(entry.name)}
-                        </div>
-                        <span className="font-medium">{entry.name}</span>
+                        <LbAvatar name={entry.name} image={entry.image} className="w-9 h-9 rounded-lg text-xs shrink-0" />
+                        <span className="font-medium truncate">{entry.name}</span>
                         {isMe && <Badge variant="primary">You</Badge>}
                       </div>
                     </td>
-                    <td className="px-5 py-3 text-right font-bold text-warning">{entry.total_points.toFixed(2)}</td>
-                    <td className="px-5 py-3 text-right">{entry.tasks_completed}</td>
+                    <td className="px-5 py-3 text-right font-bold text-warning tabular-nums">{entry.total_points.toFixed(2)}</td>
+                    <td className="px-5 py-3 text-right tabular-nums">{entry.tasks_completed}</td>
                     <td className="px-5 py-3 text-right">
                       {entry.current_streak > 0 && (
-                        <span className="inline-flex items-center gap-1"><Flame className="w-3 h-3 text-accent" />{entry.current_streak}d</span>
+                        <span className="inline-flex items-center gap-1 tabular-nums"><Flame className="w-3 h-3 text-accent" />{entry.current_streak}d</span>
                       )}
                     </td>
                   </tr>
@@ -319,9 +408,7 @@ export function LeaderboardView({ currentUserId }: { currentUserId: string }) {
                     </div>
 
                     {/* Avatar */}
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                      {getInitials(entry.name)}
-                    </div>
+                    <LbAvatar name={entry.name} image={entry.image} className="w-9 h-9 rounded-xl text-xs shrink-0" />
 
                     {/* Name + meta — gets all remaining space */}
                     <div className="min-w-0 flex-1">

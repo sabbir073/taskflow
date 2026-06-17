@@ -120,7 +120,9 @@ export async function submitAppeal(formData: {
         type: "system",
         title: "New Suspension Appeal",
         message: `${userName} submitted a suspension appeal. Please review.`,
-        link: `/appeals`,
+        // Admin-targeted notifications land on the central /inbox now —
+        // appeals show up there as a section, with click-through to /appeals.
+        link: `/inbox`,
         data: { user_id: session.user.id },
       }));
       await db.from("notifications").insert(notifs as never[]);

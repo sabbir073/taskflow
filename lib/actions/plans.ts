@@ -155,6 +155,16 @@ export async function subscribe(planId: number): Promise<ApiResponse> {
     if (!plan) return { success: false, error: "Plan not found" };
     const p = plan as Record<string, unknown>;
 
+    // Self-service subscribe is for FREE plans only. Paid plans MUST go through
+    // the manual-payment flow (submitPayment → admin reviewPayment). Without
+    // this guard, a client could POST this server action directly with a paid
+    // plan's id and self-grant an active paid subscription for free.
+    const planPrices = [p.price, p.price_monthly, p.price_half_yearly, p.price_yearly].map((v) => Number(v || 0));
+    const isFreePlan = planPrices.every((v) => v === 0);
+    if (!isFreePlan) {
+      return { success: false, error: "This plan requires payment. Please use the payment option to subscribe." };
+    }
+
     const expiresAt = computeExpiresAt(String(p.period || "monthly"));
 
     // Capture remaining quota from current active sub, then deactivate it.
